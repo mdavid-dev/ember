@@ -47,6 +47,16 @@ Some flags can be set via environment variables. Explicit flags always take prec
 | `EMBER_STDIN_LOGS` | `--stdin-logs`, `--from-stdin` | `EMBER_STDIN_LOGS=true` |
 | `CADDY_API_URL` | `--addr` | `CADDY_API_URL=http://localhost:2019` |
 | `EMBER_CONFIG` | `--config` | `EMBER_CONFIG=/etc/ember/prod.toml` |
+| `EMBER_REMOTE` | `--remote` | `EMBER_REMOTE=https://ember.prod.example.com:9443` |
+| `EMBER_REMOTE_TOKEN` | _(none)_ | The remote token itself, read in `--remote` mode only. See [Remote mode](#remote-mode). |
+| `EMBER_REMOTE_INSTANCE` | `--remote-instance` | `EMBER_REMOTE_INSTANCE=web` |
+| `EMBER_REMOTE_LISTEN` | `--remote-listen` | `EMBER_REMOTE_LISTEN=:9443` |
+| `EMBER_REMOTE_CERT` | `--remote-cert` | `EMBER_REMOTE_CERT=/etc/ember/remote.pem` |
+| `EMBER_REMOTE_KEY` | `--remote-key` | `EMBER_REMOTE_KEY=/etc/ember/remote-key.pem` |
+| `EMBER_REMOTE_CLIENT_CA` | `--remote-client-ca` | `EMBER_REMOTE_CLIENT_CA=/etc/ember/clients-ca.pem` |
+| `EMBER_REMOTE_AUTH` | `--remote-auth` | `EMBER_REMOTE_AUTH=/etc/ember/remote-auth.toml` |
+
+The `EMBER_REMOTE_*` variables only apply to their mode: the client ones (`EMBER_REMOTE`, `EMBER_REMOTE_INSTANCE`) to the TUI, the server ones to `--daemon`. Exported for another mode, they are ignored with a warning instead of failing the command.
 
 `CADDY_API_URL` is read before `EMBER_ADDR` and wins when both hold a value; an empty or blank one is ignored so it cannot mask `EMBER_ADDR`. Either of them setting `--addr` also skips the [config file](#config-file), the same way an explicit `--addr` does.
 
@@ -191,6 +201,41 @@ Constraints:
 - Plugins are skipped in multi-instance mode unless they opt in by implementing `plugin.MultiInstancePlugin`. Non-aware plugins are disabled with a startup warning. See the [Plugin Development Guide](plugins.md#multi-instance-plugins) for the multi-instance contract.
 
 See [Prometheus Export](prometheus-export.md) for the resulting metric labels and `/healthz` body.
+
+## Remote mode
+
+Runs the TUI against an Ember daemon instead of a Caddy admin API, or makes a daemon serve that API. See [Remote mode](remote.md) for the setup, the identities file and the threat model.
+
+### Client
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--remote` | string | _(none)_ | URL of the remote daemon (`https://host:port`; plain `http://` on loopback only). Exclusive with `--daemon`, `--json`, `--expose`, `--stdin-logs` and `--log-listen`; `--addr` and the Caddy TLS flags are ignored with a warning. |
+| `--remote-token-file` | string | _(none)_ | File holding the token. Without it, `EMBER_REMOTE_TOKEN` is read. The token is never accepted as an argument. |
+| `--remote-ca` | string | _(system roots)_ | CA certificate of the daemon |
+| `--remote-client-cert` | string | _(none)_ | Client certificate, for a daemon that requires mTLS; must be paired with `--remote-client-key` |
+| `--remote-client-key` | string | _(none)_ | Client private key |
+| `--remote-instance` | string | _(the only one)_ | Instance to show on a multi-instance daemon |
+
+### Daemon
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--remote-listen` | string | _(none)_ | Serve the read-only remote API on this address. Requires `--daemon`, and must differ from `--expose`. |
+| `--remote-cert`, `--remote-key` | string | _(none)_ | TLS certificate and key of the listener. Required unless `--remote-insecure-plaintext`. |
+| `--remote-client-ca` | string | _(none)_ | Require client certificates signed by this CA (mTLS) |
+| `--remote-auth` | string | _(none)_ | TOML file of the identities and scopes allowed to connect. Required with `--remote-listen`. |
+| `--remote-max-sessions` | int | `16` | Maximum simultaneous remote sessions |
+| `--remote-insecure-plaintext` | bool | `false` | Serve plain HTTP, for a TLS-terminating proxy in front of the listener |
+
+```bash
+# Daemon next to Caddy
+ember --daemon --expose :9191 --remote-listen :9443 \
+  --remote-cert remote.pem --remote-key remote-key.pem --remote-auth remote-auth.toml
+
+# TUI on a workstation
+ember --remote https://ember.prod.example.com:9443 --remote-ca prod-ca.pem --remote-token-file prod.token
+```
 
 ## Subcommands
 
@@ -450,7 +495,7 @@ ember -f .ember.staging.toml config use staging
 | `/` | Enter filter / search mode | Any tab |
 | `e` / `E` | Expand / collapse all nodes | Config tab |
 | `n` / `N` | Jump to next / previous search match | Config tab |
-| `r` | Refresh config / restart workers | Config tab / FrankenPHP tab |
+| `r` | Refresh config / restart workers (not in a remote session, which is read-only) | Config tab / FrankenPHP tab |
 | `g` | Toggle full-screen graphs | Any view |
 | `?` | Toggle help overlay | Any view |
 | `q` | Quit | Any view |
@@ -478,5 +523,6 @@ ember completion fish > ~/.config/fish/completions/ember.fish
 ## See Also
 
 - [Getting Started](getting-started.md)
+- [Remote mode](remote.md)
 - [JSON Output](json-output.md)
 - [Prometheus Export](prometheus-export.md)

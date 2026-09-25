@@ -4,6 +4,10 @@ All notable changes to Ember are documented here.
 
 ## Unreleased
 
+### Added
+
+- Remote mode: `ember --remote https://host:9443` runs the TUI against an Ember daemon in production, without SSH access to the machine, container or pod. The daemon serves a read-only API on its own TLS listener with `--remote-listen`, separate from `--expose`, and authenticates named tokens (stored as SHA-256 digests) or client certificates, each with scopes, from a `--remote-auth` file. Snapshots are pushed over a stream that resumes after a cut and detects a daemon restart; sessions and refusals are audited. Logs, Caddy config and certificates are not served yet. See [Remote mode](docs/remote.md).
+
 ### Changed
 
 - **[BC BREAK]** `pkg/metrics.HistogramBucket` now encodes an infinite `UpperBound` as the string `"+Inf"` (or `"-Inf"`), the spelling of Prometheus' `le` label, so a snapshot holding the `+Inf` bucket no longer fails to encode with `json: unsupported value: +Inf`. Finite bounds are still plain numbers, byte for byte. `upperBound` can therefore be a number or a string: a plugin that decodes buckets with its own type must accept both, while decoding into `HistogramBucket` handles it. The `--json` output is unaffected, as it still drops that bucket.
