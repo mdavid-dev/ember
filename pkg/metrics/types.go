@@ -9,6 +9,10 @@
 package metrics
 
 import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
@@ -141,6 +145,48 @@ type MetricsSnapshot struct {
 type HistogramBucket struct {
 	UpperBound      float64 `json:"upperBound"`
 	CumulativeCount float64 `json:"cumulativeCount"`
+}
+
+// MarshalJSON writes an infinite UpperBound as the string "+Inf", the
+// spelling Prometheus uses for the le label. encoding/json rejects
+// infinities, and the +Inf bucket cannot be dropped instead: it carries the
+// total observation count that percentiles are ranked against.
+func (b HistogramBucket) MarshalJSON() ([]byte, error) {
+	if !math.IsInf(b.UpperBound, 0) {
+		type plain HistogramBucket
+		return json.Marshal(plain(b))
+	}
+	return json.Marshal(struct {
+		UpperBound      string  `json:"upperBound"`
+		CumulativeCount float64 `json:"cumulativeCount"`
+	}{strconv.FormatFloat(b.UpperBound, 'f', -1, 64), b.CumulativeCount})
+}
+
+// UnmarshalJSON reads UpperBound as a number or as the "+Inf" string written
+// by MarshalJSON.
+func (b *HistogramBucket) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		UpperBound      json.RawMessage `json:"upperBound"`
+		CumulativeCount float64         `json:"cumulativeCount"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	b.CumulativeCount = raw.CumulativeCount
+	b.UpperBound = 0
+	if len(raw.UpperBound) == 0 {
+		return nil
+	}
+	var bound string
+	if json.Unmarshal(raw.UpperBound, &bound) != nil {
+		return json.Unmarshal(raw.UpperBound, &b.UpperBound)
+	}
+	v, err := strconv.ParseFloat(bound, 64)
+	if err != nil {
+		return fmt.Errorf("histogram bucket upper bound %q: %w", bound, err)
+	}
+	b.UpperBound = v
+	return nil
 }
 
 // ProcessMetrics holds OS-level metrics for the monitored server process.
