@@ -1,0 +1,149 @@
+{
+  "instance": "default",
+  "fetchedAt": "2026-09-25T12:03:04.5Z",
+  "metricsFailed": true,
+  "snapshot": {
+    "threads": {
+      "ThreadDebugStates": [
+        {
+          "Index": 0,
+          "Name": "Worker PHP Thread - /app/public/index.php",
+          "State": "busy",
+          "IsWaiting": true,
+          "IsBusy": true,
+          "WaitingSinceMilliseconds": 12,
+          "CurrentURI": "/api/orders?page=2&sort=desc",
+          "CurrentMethod": "GET",
+          "RequestStartedAt": 1790337784000,
+          "MemoryUsage": 8388608,
+          "RequestCount": 1532
+        },
+        {
+          "Index": 1,
+          "Name": "Regular PHP Thread",
+          "State": "ready",
+          "IsWaiting": false,
+          "IsBusy": false,
+          "WaitingSinceMilliseconds": 0
+        }
+      ],
+      "ReservedThreadCount": 2
+    },
+    "metrics": {
+      "totalThreads": 16,
+      "busyThreads": 1,
+      "queueDepth": 3,
+      "workers": {
+        "/app/public/index.php": {
+          "worker": "/app/public/index.php",
+          "total": 8,
+          "busy": 1,
+          "ready": 7,
+          "requestTime": 125.5,
+          "requestCount": 1532,
+          "crashes": 1,
+          "restarts": 2,
+          "queueDepth": 4
+        }
+      },
+      "httpRequestErrorsTotal": 5,
+      "httpRequestsTotal": 1200,
+      "httpRequestDurationSum": 42.75,
+      "httpRequestDurationCount": 1200,
+      "httpRequestsInFlight": 2,
+      "durationBuckets": [
+        {
+          "upperBound": 0.005,
+          "cumulativeCount": 10
+        },
+        {
+          "upperBound": 0.25,
+          "cumulativeCount": 38
+        },
+        {
+          "upperBound": "+Inf",
+          "cumulativeCount": 41
+        }
+      ],
+      "hasHttpMetrics": true,
+      "hosts": {
+        "shop.example": {
+          "host": "shop.example",
+          "requestsTotal": 1200,
+          "durationSum": 42.75,
+          "durationCount": 1200,
+          "inFlight": 2,
+          "durationBuckets": [
+            {
+              "upperBound": 0.005,
+              "cumulativeCount": 10
+            },
+            {
+              "upperBound": 0.25,
+              "cumulativeCount": 38
+            },
+            {
+              "upperBound": "+Inf",
+              "cumulativeCount": 41
+            }
+          ],
+          "statusCodes": {
+            "200": 1150,
+            "404": 45,
+            "502": 5
+          },
+          "methods": {
+            "GET": 1000,
+            "POST": 200
+          },
+          "responseSizeSum": 1048576,
+          "responseSizeCount": 1200,
+          "requestSizeSum": 20480,
+          "requestSizeCount": 200,
+          "errorsTotal": 5,
+          "ttfbSum": 30.5,
+          "ttfbCount": 1200,
+          "ttfbBuckets": [
+            {
+              "upperBound": 0.005,
+              "cumulativeCount": 10
+            },
+            {
+              "upperBound": 0.25,
+              "cumulativeCount": 38
+            },
+            {
+              "upperBound": "+Inf",
+              "cumulativeCount": 41
+            }
+          ]
+        }
+      },
+      "upstreams": {
+        "php:9000/reverse_proxy": {
+          "address": "php:9000",
+          "handler": "reverse_proxy",
+          "healthy": 1
+        }
+      },
+      "processCpuSecondsTotal": 321.5,
+      "processRssBytes": 134217728,
+      "processStartTimeSeconds": 1790330000,
+      "hasConfigReloadMetrics": true,
+      "configLastReloadSuccessful": 1,
+      "configLastReloadSuccessTimestamp": 1790330010
+    },
+    "process": {
+      "pid": 4242,
+      "cpuPercent": 12.5,
+      "rss": 134217728,
+      "createTime": 1790330000000,
+      "uptime": 5400000000000
+    },
+    "fetchedAt": "2026-09-25T12:03:04.5Z",
+    "errors": [
+      "fetch threads: context deadline exceeded"
+    ],
+    "hasFrankenPHP": true
+  }
+}

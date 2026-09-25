@@ -1,0 +1,15 @@
+{
+  "subject": "CN=shop.example",
+  "issuer": "CN=R11,O=Let's Encrypt,C=US",
+  "dnsNames": [
+    "shop.example",
+    "www.shop.example"
+  ],
+  "notBefore": "2026-08-26T12:03:04.5Z",
+  "notAfter": "2026-11-24T12:03:04.5Z",
+  "serial": "4a3f2e1d",
+  "isCa": true,
+  "source": "tls",
+  "host": "shop.example",
+  "autoRenew": true
+}

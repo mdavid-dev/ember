@@ -1,0 +1,10 @@
+{
+  "error": "unsupported remote protocol 2",
+  "supportedProtocols": [
+    1
+  ],
+  "instances": [
+    "api",
+    "web"
+  ]
+}

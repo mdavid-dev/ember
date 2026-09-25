@@ -1,0 +1,23 @@
+{
+  "protocol": 1,
+  "emberVersion": "1.7.0",
+  "daemonEpoch": "01J9ZK3Q8V4T6W0Y2A5C7E9G1H",
+  "identity": "alice",
+  "scopes": [
+    "snapshot",
+    "logs"
+  ],
+  "capabilities": [
+    "snapshot",
+    "logs",
+    "config",
+    "certificates"
+  ],
+  "instances": [
+    {
+      "name": "default",
+      "hasFrankenPHP": true,
+      "interval": "1s"
+    }
+  ]
+}

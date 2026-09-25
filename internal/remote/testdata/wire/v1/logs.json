@@ -1,0 +1,33 @@
+{
+  "entries": [
+    {
+      "timestamp": "2026-09-25T12:03:04.5Z",
+      "level": "info",
+      "logger": "http.log.access.log0",
+      "message": "handled request",
+      "host": "shop.example",
+      "method": "GET",
+      "uri": "/cart?id=1&x=<y>",
+      "status": 200,
+      "duration": 0.0125,
+      "size": 5120,
+      "remoteIp": "203.0.113.9"
+    },
+    {
+      "timestamp": "2026-09-25T12:03:04.5Z",
+      "level": "",
+      "logger": "",
+      "message": "",
+      "host": "",
+      "method": "",
+      "uri": "",
+      "status": 0,
+      "duration": 0,
+      "size": 0,
+      "remoteIp": "",
+      "rawLine": "not json",
+      "parseError": true
+    }
+  ],
+  "dropped": 3
+}
