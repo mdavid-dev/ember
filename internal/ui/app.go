@@ -46,9 +46,18 @@ type Config struct {
 	RuntimeLogBuffer *model.LogBuffer
 	RouteAggregator  *model.RouteAggregator
 	LogSource        string // path or description; empty when no source is known
+	Remote           string // daemon host:port in a remote session
 }
 
 type tab int
+
+var remoteUnavailable = map[tab]string{
+	tabLogs:         "Logs are not available in a remote session.",
+	tabConfig:       "Caddy Config is not available in a remote session.",
+	tabCertificates: "Certificates are not available in a remote session.",
+}
+
+const remoteRestartUnavailable = "Worker restart is not available in a remote session."
 
 const (
 	tabCaddy tab = iota
@@ -255,7 +264,7 @@ func (a *App) View() string {
 	}
 	listWidth := a.width - panelWidth
 
-	dashboard := renderDashboard(&a.state, listWidth, a.config.Version, lastN(a.history.rps, sparklineSize), lastN(a.history.cpu, sparklineSize), a.stale, a.paused, a.hasFrankenPHP)
+	dashboard := renderDashboard(&a.state, listWidth, a.config.Version, a.config.Remote, lastN(a.history.rps, sparklineSize), lastN(a.history.cpu, sparklineSize), a.stale, a.paused, a.hasFrankenPHP)
 	counts := make(map[tab]string)
 	if a.state.Current != nil {
 		if hostCount := len(a.state.HostDerived); hostCount > 0 {
@@ -382,6 +391,10 @@ func (a *App) View() string {
 				contentList = greyStyle.Render(" " + pt.group.err.Error())
 			}
 		}
+	}
+
+	if msg, ok := remoteUnavailable[a.activeTab]; ok && a.config.Remote != "" {
+		contentList = greyStyle.Render(" " + msg)
 	}
 
 	// Built after the content: rendering the By Route table is what decides

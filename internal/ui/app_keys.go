@@ -252,7 +252,9 @@ func (a *App) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "r":
-		if a.activeTab == tabFrankenPHP {
+		if a.activeTab == tabFrankenPHP && a.config.Remote != "" {
+			a.status = remoteRestartUnavailable
+		} else if a.activeTab == tabFrankenPHP {
 			a.mode = viewConfirmRestart
 		} else if pt := a.activePluginTab(); pt != nil && pt.renderer != nil {
 			safePluginHandleKey(pt.renderer, msg) //nolint:errcheck // consumed status is informational
@@ -310,7 +312,9 @@ func (a *App) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return a, tea.Quit
 	case "r":
-		if a.activeTab == tabFrankenPHP {
+		if a.activeTab == tabFrankenPHP && a.config.Remote != "" {
+			a.status = remoteRestartUnavailable
+		} else if a.activeTab == tabFrankenPHP {
 			a.mode = viewConfirmRestart
 		}
 	case "?":

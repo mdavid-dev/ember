@@ -33,6 +33,7 @@ type StateHolder struct {
 	mu        sync.RWMutex
 	instances map[string]*instanceSlot
 	multi     bool
+	updated   chan struct{}
 }
 
 func (h *StateHolder) put(name string, slot *instanceSlot) {
@@ -41,6 +42,10 @@ func (h *StateHolder) put(name string, slot *instanceSlot) {
 		h.instances = make(map[string]*instanceSlot)
 	}
 	h.instances[name] = slot
+	if h.updated != nil {
+		close(h.updated)
+		h.updated = nil
+	}
 	h.mu.Unlock()
 }
 

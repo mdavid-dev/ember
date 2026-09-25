@@ -9,6 +9,8 @@
 package metrics
 
 import (
+	"encoding/json"
+	"math"
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
@@ -141,6 +143,40 @@ type MetricsSnapshot struct {
 type HistogramBucket struct {
 	UpperBound      float64 `json:"upperBound"`
 	CumulativeCount float64 `json:"cumulativeCount"`
+}
+
+// histogramBucketJSON has no methods, so encoding it does not recurse.
+type histogramBucketJSON struct {
+	UpperBound      any     `json:"upperBound"`
+	CumulativeCount float64 `json:"cumulativeCount"`
+}
+
+// MarshalJSON writes an infinite bound as "+Inf": JSON has none, and that bucket holds the total count.
+func (b HistogramBucket) MarshalJSON() ([]byte, error) {
+	var bound any = b.UpperBound
+	if math.IsInf(b.UpperBound, 1) {
+		bound = "+Inf"
+	}
+	return json.Marshal(histogramBucketJSON{UpperBound: bound, CumulativeCount: b.CumulativeCount})
+}
+
+// UnmarshalJSON accepts a number or "+Inf".
+func (b *HistogramBucket) UnmarshalJSON(data []byte) error {
+	raw := struct {
+		UpperBound      json.RawMessage `json:"upperBound"`
+		CumulativeCount float64         `json:"cumulativeCount"`
+	}{CumulativeCount: b.CumulativeCount}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	b.CumulativeCount = raw.CumulativeCount
+	switch {
+	case string(raw.UpperBound) == `"+Inf"`:
+		b.UpperBound = math.Inf(1)
+	case len(raw.UpperBound) > 0:
+		return json.Unmarshal(raw.UpperBound, &b.UpperBound)
+	}
+	return nil
 }
 
 // ProcessMetrics holds OS-level metrics for the monitored server process.

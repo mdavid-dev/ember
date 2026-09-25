@@ -118,6 +118,30 @@ func TestDoRestart_NonRestarterFetcherReturnsEmptyMsg(t *testing.T) {
 		"a fetcher without restart support must produce a no-op message, not an error")
 }
 
+type deadlineFetcher struct{ deadline *time.Duration }
+
+func (d deadlineFetcher) Fetch(ctx context.Context) (*fetcher.Snapshot, error) {
+	dl, _ := ctx.Deadline()
+	*d.deadline = time.Until(dl)
+	return &fetcher.Snapshot{}, nil
+}
+
+func TestDoFetch_TimeoutOutlastsTheDaemonWait(t *testing.T) {
+	for interval, want := range map[time.Duration]time.Duration{
+		time.Second:      globalFetchTimeout,
+		5 * time.Second:  15 * time.Second,
+		30 * time.Second: 90 * time.Second,
+	} {
+		var got time.Duration
+		app := NewApp(deadlineFetcher{&got}, Config{Interval: interval})
+
+		app.doFetch()()
+
+		require.Positive(t, got)
+		assert.InDelta(t, want.Seconds(), got.Seconds(), 1, "interval %s", interval)
+	}
+}
+
 func TestDoFetchConfig_ConfigFetcher(t *testing.T) {
 	app := NewApp(&stubFetcher{configRaw: json.RawMessage(`{"x":1}`)}, Config{Interval: time.Second})
 	got := app.doFetchConfig()().(configFetchMsg)

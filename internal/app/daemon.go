@@ -64,11 +64,16 @@ func reloadTLS(f fetcher.Fetcher, opts fetcher.TLSOptions, log *slog.Logger) {
 	log.Info("TLS certificates reloaded (SIGHUP)")
 }
 
-func metricsURL(addr string) string {
+func metricsURL(srv *http.Server) string {
+	addr := srv.Addr
 	if len(addr) > 0 && addr[0] == ':' {
 		addr = "localhost" + addr
 	}
-	return "http://" + addr + "/metrics"
+	scheme := "http"
+	if srv.TLSConfig != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + addr + "/metrics"
 }
 
 func newMetricsHandler(holder *exporter.StateHolder, cfg *config, perInstance map[string]time.Duration) http.Handler {
@@ -76,6 +81,9 @@ func newMetricsHandler(holder *exporter.StateHolder, cfg *config, perInstance ma
 	mux.HandleFunc("/metrics", exporter.Handler(holder, cfg.metricsPrefix, cfg.recorder))
 	mux.HandleFunc("/healthz", exporter.HealthHandler(holder, cfg.interval, perInstance))
 	mux.HandleFunc("/healthz/", exporter.InstanceHealthHandler(holder, cfg.interval, perInstance))
+	if cfg.serveRemote {
+		mux.HandleFunc("GET /snapshot", exporter.SnapshotHandler(holder, cfg.interval, perInstance))
+	}
 
 	var handler http.Handler = mux
 	if cfg.metricsAuth != "" {
@@ -124,15 +132,18 @@ func runDaemon(ctx context.Context, instances []*instance, cfg *config, plugins 
 	dPlugins := newDaemonPlugins(plugins)
 
 	srv := newMetricsServer(cfg.expose, newMetricsHandler(holder, cfg, perInstanceIntervals(instances)))
+	if err := configureExposeServer(srv, cfg); err != nil {
+		return err
+	}
+
+	log := cfg.logger
+	log.Info("daemon started", "metrics_url", metricsURL(srv), "instances", len(instances))
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := listenMetrics(srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			cancel(err)
 		}
 	}()
-
-	log := cfg.logger
-	log.Info("daemon started", "metrics_url", metricsURL(cfg.expose), "instances", len(instances))
 
 	// Arm before pollAll: it blocks on a full fetch of every instance, and
 	// until Notify runs both signals still terminate the process.

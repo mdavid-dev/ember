@@ -35,6 +35,9 @@ func runTUI(f fetcher.Fetcher, cfg *config, interval time.Duration, hasFrankenPH
 		HasFrankenPHP: hasFrankenPHP,
 		Plugins:       plugins,
 	}
+	if cfg.remoteURL != nil {
+		uiCfg.Remote = cfg.remoteURL.Host
+	}
 
 	// Bubble Tea intercepts SIGINT, but not SIGTERM. Without this trap a
 	// `systemctl stop` or `kill <pid>` would skip our defer chain (and leave
@@ -126,6 +129,9 @@ func startMetricsServer(srv *http.Server) <-chan error {
 // and enables access logging on every server that did not already have a logs
 // block. The returned cleanup function reverses both changes.
 func setupLogSource(cfg *config, f fetcher.Fetcher, uiCfg *ui.Config) func() {
+	if cfg.remoteURL != nil {
+		return func() {}
+	}
 	if cfg.stdinLogs {
 		startStdinListener(uiCfg)
 		return func() {}

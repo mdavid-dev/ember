@@ -2,6 +2,16 @@
 
 All notable changes to Ember are documented here.
 
+## Unreleased
+
+### Added
+
+- `ember --remote <url>` runs the TUI, read-only, against a daemon started with `--serve-remote`, which serves its latest snapshot on `GET /snapshot` behind `--metrics-auth` or a client certificate. `--expose-cert`, `--expose-key` and `--expose-client-ca` put the daemon's `--expose` server, Prometheus included, behind TLS or mTLS. See [Remote TUI](docs/remote.md).
+
+### Fixed
+
+- `pkg/metrics.HistogramBucket` encodes an infinite `UpperBound` as the string `"+Inf"`, so a snapshot holding Caddy's `+Inf` bucket can now be encoded as JSON.
+
 ## 1.6.1 - 2026-08-31
 
 ### Changed
