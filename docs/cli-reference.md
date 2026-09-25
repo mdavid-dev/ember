@@ -29,6 +29,12 @@ ember [flags]
 | `--metrics-auth`   | string | _(none)_ | Basic auth for the metrics endpoint (`user:password`). Requires `--expose`. See [Prometheus Export](prometheus-export.md). |
 | `--log-listen`     | string | _(auto)_ | Bind a TCP listener at this address (e.g. `:9210`) and ask Caddy to push its logs to it via two hot-registered sinks (access + runtime). Required when Caddy is on a remote host; auto-bound on a free loopback port otherwise. See [Logs](logs.md). |
 | `--stdin-logs`, `--from-stdin` | bool | `false` | Read Caddy logs directly from stdin instead of registering a net_writer via Caddy's Admin API. Ideal for Kubernetes / unidirectional environments. |
+| `--remote`         | string | _(none)_ | Run the TUI against a remote Ember daemon (e.g. `https://ember.prod:9443`) instead of a Caddy admin API. Requires `--remote-token`. See [Remote TUI](remote.md). |
+| `--remote-token`   | string | _(none)_ | Bearer token. With `--daemon`: serves the remote TUI API and requires this token from clients (at least 32 characters). With `--remote`: sent to the daemon. Prefer `EMBER_REMOTE_TOKEN`, which stays out of the process list. |
+| `--remote-instance` | string | _(none)_ | Instance to watch when the remote daemon monitors several Caddy servers. Requires `--remote`. |
+| `--expose-cert`    | string | _(none)_ | TLS certificate for the `--expose` endpoint; must be paired with `--expose-key` |
+| `--expose-key`     | string | _(none)_ | TLS private key for the `--expose` endpoint |
+| `--expose-client-ca` | string | _(none)_ | Require client certificates signed by this CA on the `--expose` endpoint (mTLS), Prometheus scrapers included |
 | `--no-color`       | bool | `false` | Disable colors. Also enabled by the `NO_COLOR` env var (see [no-color.org](https://no-color.org/)). |
 | `--version`        | | | Print version and exit |
 
@@ -45,6 +51,12 @@ Some flags can be set via environment variables. Explicit flags always take prec
 | `EMBER_METRICS_AUTH` | `--metrics-auth` | `EMBER_METRICS_AUTH=admin:secret` |
 | `EMBER_LOG_LISTEN` | `--log-listen` | `EMBER_LOG_LISTEN=:9210` |
 | `EMBER_STDIN_LOGS` | `--stdin-logs`, `--from-stdin` | `EMBER_STDIN_LOGS=true` |
+| `EMBER_REMOTE` | `--remote` | `EMBER_REMOTE=https://ember.prod:9443` |
+| `EMBER_REMOTE_TOKEN` | `--remote-token` | `EMBER_REMOTE_TOKEN=$(openssl rand -hex 32)` |
+| `EMBER_EXPOSE_CERT` | `--expose-cert` | `EMBER_EXPOSE_CERT=/certs/tls.crt` |
+| `EMBER_EXPOSE_KEY` | `--expose-key` | `EMBER_EXPOSE_KEY=/certs/tls.key` |
+| `EMBER_EXPOSE_CLIENT_CA` | `--expose-client-ca` | `EMBER_EXPOSE_CLIENT_CA=/certs/clients-ca.pem` |
+| `EMBER_REMOTE_INSTANCE` | `--remote-instance` | `EMBER_REMOTE_INSTANCE=web1` |
 | `CADDY_API_URL` | `--addr` | `CADDY_API_URL=http://localhost:2019` |
 | `EMBER_CONFIG` | `--config` | `EMBER_CONFIG=/etc/ember/prod.toml` |
 

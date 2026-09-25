@@ -2,6 +2,17 @@
 
 All notable changes to Ember are documented here.
 
+## Unreleased
+
+### Added
+
+- Remote TUI: `ember --remote https://host:port` renders the dashboard from an Ember daemon started with `--remote-token`, so a developer can watch production live without SSH access. Every tab works remotely except worker restart: logs are relayed by the daemon, the Caddy config and certificates are read through it. The session is read-only, token-authenticated, and logged on the daemon side. See [Remote TUI](docs/remote.md).
+- `--expose-cert`, `--expose-key` and `--expose-client-ca` serve the `--expose` endpoint over TLS, with optional mTLS.
+
+### Changed
+
+- **[BC BREAK]** `pkg/metrics.HistogramBucket` now round-trips through JSON: an infinite `upperBound` is encoded as the string `"+Inf"` instead of failing the whole encoding, so `upperBound` is a number or that string. A plugin decoding buckets with its own type needs to accept both. `--json` output is unchanged, as it already drops that bucket.
+
 ## 1.6.1 - 2026-08-31
 
 ### Changed

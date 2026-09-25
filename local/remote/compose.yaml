@@ -1,0 +1,34 @@
+# A production-like setup: the Caddy admin API is only reachable inside the
+# Docker network, and the only published port for monitoring is the Ember
+# daemon's TLS endpoint (9443). See docs/remote.md.
+services:
+  frankenphp:
+    image: dunglas/frankenphp:latest
+    container_name: ember-remote-frankenphp
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - ../frankenphp/public:/app/public
+      - ../frankenphp/Caddyfile:/etc/frankenphp/Caddyfile
+
+  ember:
+    build:
+      context: ../..
+    container_name: ember-remote-daemon
+    depends_on:
+      - frankenphp
+    command:
+      - --daemon
+      - --addr=http://frankenphp:2019
+      - --expose=:9443
+      - --expose-cert=/certs/tls.crt
+      - --expose-key=/certs/tls.key
+      # Caddy pushes its logs here; the daemon relays them to remote TUIs.
+      - --log-listen=ember:9210
+    environment:
+      EMBER_REMOTE_TOKEN: ${EMBER_REMOTE_TOKEN:?run make certs first}
+    ports:
+      - "9443:9443"
+    volumes:
+      - ./certs:/certs:ro
