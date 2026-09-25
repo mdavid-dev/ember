@@ -150,14 +150,19 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		return
 	}
+	refused := func(reason RefuseReason) {
+		s.cfg.Audit.SessionRefused(r.Context(), SessionRefusedEvent{Identity: id.Name, ClientCN: id.ClientCN, RemoteAddr: r.RemoteAddr, Reason: reason})
+	}
 	sid, ok := s.openSession(id)
 	if !ok {
+		refused(RefuseSessionCap)
 		writeError(w, http.StatusServiceUnavailable, ErrorResponse{Error: fmt.Sprintf("too many remote sessions (max %d)", s.cfg.MaxSessions)})
 		return
 	}
 	defer s.closeSession(sid)
 	sub, err := s.cfg.Broadcaster.Subscribe(instance)
 	if err != nil {
+		refused(RefuseShutdown)
 		writeError(w, http.StatusServiceUnavailable, ErrorResponse{Error: "the daemon is shutting down"})
 		return
 	}
@@ -227,7 +232,8 @@ func (st *stream) send(ev Event) (CloseReason, bool) {
 	}
 	st.id = current
 	// Without a deadline a stalled client would pin this goroutine forever.
-	if err := st.rc.SetWriteDeadline(time.Now().Add(st.s.writeTimeout)); err != nil {
+	deadline := time.Now().Add(st.s.writeTimeout)
+	if err := st.rc.SetWriteDeadline(deadline); err != nil {
 		return CloseClient, false
 	}
 	var n int
@@ -243,9 +249,14 @@ func (st *stream) send(ev Event) (CloseReason, bool) {
 		err = st.rc.Flush()
 	}
 	switch {
-	case errors.Is(err, os.ErrDeadlineExceeded):
+	// HTTP/2 reports an expired deadline as a reset stream, not ErrDeadlineExceeded.
+	case errors.Is(err, os.ErrDeadlineExceeded), err != nil && !time.Now().Before(deadline):
 		return CloseSlowClient, false
 	case err != nil:
+		return CloseClient, false
+	}
+	// A deadline left armed would reset an idle HTTP/2 stream between events.
+	if err := st.rc.SetWriteDeadline(time.Time{}); err != nil {
 		return CloseClient, false
 	}
 	return "", true

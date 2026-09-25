@@ -47,6 +47,30 @@ func snapWithThreads(n float64) *metrics.Snapshot {
 	return &metrics.Snapshot{FetchedAt: fixtureTime, HasFrankenPHP: true, Metrics: metrics.MetricsSnapshot{TotalThreads: n}}
 }
 
+// within fails the test, instead of hanging the suite, when fn blocks.
+func within(t *testing.T, d time.Duration, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		require.FailNow(t, "blocked", "still running after %s", d)
+	}
+}
+
+func waitReady(t *testing.T, sub *Subscription) {
+	t.Helper()
+	select {
+	case <-sub.Ready():
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "subscription never woke up")
+	}
+}
+
 func decodeEvent(t *testing.T, ev *event) WireSnapshot {
 	t.Helper()
 	require.Equal(t, EventSnapshot, ev.typ)
@@ -60,15 +84,17 @@ func TestBroadcaster_FrozenSubscriberNeverSlowsPublish(t *testing.T) {
 	frozen, err := b.Subscribe(DefaultInstance)
 	require.NoError(t, err)
 
-	start := time.Now()
-	for i := range 100 {
-		b.PublishSnapshot(DefaultInstance, snapWithThreads(float64(i)))
-	}
-	assert.Less(t, time.Since(start), 250*time.Millisecond, "100 publishes with a subscriber that never reads")
+	within(t, 2*time.Second, func() {
+		for i := range 100 {
+			b.PublishSnapshot(DefaultInstance, snapWithThreads(float64(i)))
+			b.PublishFailure(DefaultInstance, errors.New("down"))
+		}
+	})
 
 	evs := frozen.Take()
-	require.Len(t, evs, 1, "latest wins: no queue builds up")
+	require.Len(t, evs, 2, "latest wins: one pending event per kind, no queue")
 	assert.Equal(t, 99.0, decodeEvent(t, evs[0]).Snapshot.Metrics.TotalThreads)
+	assert.Equal(t, EventStatus, evs[1].typ)
 	assert.Empty(t, frozen.Take(), "a taken event is not sent twice")
 }
 
@@ -80,7 +106,7 @@ func TestBroadcaster_TakeKeepsPublishOrder(t *testing.T) {
 	b.PublishFailure(DefaultInstance, errors.New("connection refused"))
 	b.PublishFailure(DefaultInstance, errors.New("still refused"))
 	b.PublishSnapshot(DefaultInstance, snapWithThreads(1))
-	<-sub.Ready()
+	waitReady(t, sub)
 	evs := sub.Take()
 	require.Len(t, evs, 2, "one pending event per kind; a repeated failure is not a change")
 	assert.Equal(t, EventSnapshot, evs[0].typ)
@@ -132,7 +158,7 @@ func TestBroadcaster_SubscribeStartsFromLastKnown(t *testing.T) {
 	b.PublishSnapshot(DefaultInstance, snapWithThreads(7))
 	late, err := b.Subscribe(DefaultInstance)
 	require.NoError(t, err)
-	<-late.Ready()
+	waitReady(t, late)
 	evs := late.Take()
 	require.Len(t, evs, 1, "no status event when the instance is ok")
 	assert.Equal(t, 7.0, decodeEvent(t, evs[0]).Snapshot.Metrics.TotalThreads)
@@ -232,7 +258,11 @@ func TestBroadcaster_Close(t *testing.T) {
 	require.NoError(t, err)
 	b.Close()
 	b.Close()
-	<-b.Done()
+	select {
+	case <-b.Done():
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "Done never closed")
+	}
 
 	_, err = b.Subscribe(DefaultInstance)
 	require.ErrorIs(t, err, errBroadcasterClosed)

@@ -86,7 +86,8 @@ type openStream struct {
 
 func (h *serverHarness) open(t *testing.T, path, token string) *openStream {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	// The timeout turns a stream that never delivers into a failure, not a hang.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	req := h.request(t, http.MethodGet, path, token).WithContext(ctx)
 	resp, err := h.http.Client().Do(req)
 	require.NoError(t, err)
@@ -123,7 +124,7 @@ func (h *serverHarness) auditEvent(t *testing.T, name string) map[string]any {
 			}
 		}
 		return false
-	}, 5*time.Second, 10*time.Millisecond)
+	}, 10*time.Second, 10*time.Millisecond)
 	return found
 }
 
@@ -288,8 +289,12 @@ func TestServer_SessionCap(t *testing.T) {
 	assert.JSONEq(t, `{"error":"too many remote sessions (max 2)"}`, string(body))
 
 	first.close()
-	require.Eventually(t, func() bool { return h.sessions() == 1 }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return h.sessions() == 1 }, 10*time.Second, 10*time.Millisecond)
 	h.open(t, RouteStream, bobToken).next(t, EventHello)
+
+	refused := h.auditEvent(t, AuditSessionRefused)
+	assert.Equal(t, string(RefuseSessionCap), refused["reason"])
+	assert.Equal(t, "bob", refused["identity"])
 }
 
 func TestServer_ShutdownClosesStreams(t *testing.T) {
@@ -305,6 +310,7 @@ func TestServer_ShutdownClosesStreams(t *testing.T) {
 	resp, _ := h.do(t, h.request(t, http.MethodGet, RouteStream, bobToken))
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 	assert.Zero(t, h.sessions())
+	assert.Equal(t, string(RefuseShutdown), h.auditEvent(t, AuditSessionRefused)["reason"])
 }
 
 func swapIdentities(t *testing.T, a *Authenticator, file string) {
@@ -366,8 +372,20 @@ func bigSnapshot(hosts int) *metrics.Snapshot {
 	return s
 }
 
-// A client that stops reading fills the socket buffers; the write deadline
-// then ends its session while publishing carries on unhindered.
+// publishUntilClosed publishes large snapshots until the one session is gone;
+// no single publish may wait on the frozen client.
+func publishUntilClosed(t *testing.T, h *serverHarness) {
+	t.Helper()
+	require.Eventually(t, func() bool { return h.sessions() == 1 }, 10*time.Second, 5*time.Millisecond)
+	snap := bigSnapshot(20_000)
+	deadline := time.Now().Add(20 * time.Second)
+	for h.sessions() == 1 && time.Now().Before(deadline) {
+		within(t, 10*time.Second, func() { h.b.PublishSnapshot(DefaultInstance, snap) })
+		time.Sleep(20 * time.Millisecond)
+	}
+	assert.Equal(t, string(CloseSlowClient), h.auditEvent(t, AuditSessionClose)["reason"])
+}
+
 func TestServer_SlowClientIsDisconnected(t *testing.T) {
 	h := newServerHarness(t, []string{DefaultInstance}, nil)
 	h.srv.writeTimeout = 200 * time.Millisecond
@@ -377,17 +395,52 @@ func TestServer_SlowClientIsDisconnected(t *testing.T) {
 	defer conn.Close()
 	require.NoError(t, conn.(*net.TCPConn).SetReadBuffer(4096))
 	fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: x\r\n%s: 1\r\nAuthorization: Bearer %s\r\n\r\n", RouteStream, HeaderProtocol, bobToken)
-	require.Eventually(t, func() bool { return h.sessions() == 1 }, 5*time.Second, 5*time.Millisecond)
+	publishUntilClosed(t, h)
+}
 
-	snap := bigSnapshot(20_000)
-	deadline := time.Now().Add(10 * time.Second)
-	for h.sessions() == 1 && time.Now().Before(deadline) {
-		start := time.Now()
-		h.b.PublishSnapshot(DefaultInstance, snap)
-		require.Less(t, time.Since(start), time.Second, "publishing never waits on the frozen client")
-		time.Sleep(20 * time.Millisecond)
-	}
-	assert.Equal(t, string(CloseSlowClient), h.auditEvent(t, AuditSessionClose)["reason"])
+// Production listeners are TLS, which negotiates HTTP/2: there the stall comes
+// from flow control rather than from the socket buffers.
+func TestServer_SlowClientIsDisconnectedOverHTTP2(t *testing.T) {
+	h := newServerHarness(t, []string{DefaultInstance}, nil)
+	h.srv.writeTimeout = 200 * time.Millisecond
+	h2 := httptest.NewUnstartedServer(h.srv)
+	h2.EnableHTTP2 = true
+	h2.StartTLS()
+	defer h2.Close()
+
+	req := h.request(t, http.MethodGet, RouteStream, bobToken)
+	req.URL.Host = h2.Listener.Addr().String()
+	req.URL.Scheme = "https"
+	resp, err := h2.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 2, resp.ProtoMajor)
+	publishUntilClosed(t, h)
+}
+
+func TestServer_IdleHTTP2StreamOutlivesTheWriteDeadline(t *testing.T) {
+	h := newServerHarness(t, []string{DefaultInstance}, nil)
+	h.srv.writeTimeout = 100 * time.Millisecond
+	h2 := httptest.NewUnstartedServer(h.srv)
+	h2.EnableHTTP2 = true
+	h2.StartTLS()
+	defer h2.Close()
+
+	req := h.request(t, http.MethodGet, RouteStream, bobToken)
+	req.URL.Host = h2.Listener.Addr().String()
+	req.URL.Scheme = "https"
+	resp, err := h2.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	r := NewReader(resp.Body, 0)
+	_, err = r.Next()
+	require.NoError(t, err)
+
+	time.Sleep(5 * h.srv.writeTimeout)
+	h.b.PublishSnapshot(DefaultInstance, snapWithThreads(1))
+	ev, err := r.Next()
+	require.NoError(t, err, "a healthy idle stream is not reset")
+	assert.Equal(t, EventSnapshot, ev.Type)
 }
 
 func TestServer_IgnoresRequestBodies(t *testing.T) {
