@@ -287,3 +287,24 @@ func TestFilteredUpstreams_FiltersByAddressAndHandler(t *testing.T) {
 	app.filter = "no-match-anywhere"
 	assert.Empty(t, app.filteredUpstreams())
 }
+
+func TestFetchTimeout_OutlastsASlowInterval(t *testing.T) {
+	assert.Equal(t, globalFetchTimeout, NewApp(noOpFetcher{}, Config{Interval: time.Second}).fetchTimeout())
+	assert.Equal(t, 60*time.Second, NewApp(noOpFetcher{}, Config{Interval: 30 * time.Second}).fetchTimeout(),
+		"a remote daemon polling every 30 s must not make each fetch time out")
+}
+
+// deadlineFetcher reports the deadline Fetch was given.
+type deadlineFetcher struct{ got chan time.Duration }
+
+func (d deadlineFetcher) Fetch(ctx context.Context) (*fetcher.Snapshot, error) {
+	dl, _ := ctx.Deadline()
+	d.got <- time.Until(dl)
+	return &fetcher.Snapshot{}, nil
+}
+
+func TestDoFetch_UsesTheFetchTimeout(t *testing.T) {
+	f := deadlineFetcher{got: make(chan time.Duration, 1)}
+	NewApp(f, Config{Interval: 30 * time.Second}).doFetch()()
+	assert.Greater(t, <-f.got, 50*time.Second)
+}

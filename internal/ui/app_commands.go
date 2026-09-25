@@ -3,15 +3,23 @@ package ui
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/alexandre-daubois/ember/pkg/plugin"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// fetchTimeout outlasts the interval: a remote fetcher waits for the daemon's
+// next poll, which can come later than globalFetchTimeout.
+func (a *App) fetchTimeout() time.Duration {
+	return max(globalFetchTimeout, 2*a.config.Interval)
+}
+
 func (a *App) doFetch() tea.Cmd {
+	timeout := a.fetchTimeout()
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), globalFetchTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		snap, err := a.fetcher.Fetch(ctx)
 		return fetchMsg{snap: snap, err: err}
