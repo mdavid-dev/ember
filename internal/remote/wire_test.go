@@ -471,3 +471,30 @@ func TestGoldenFilesHaveNoStrayCases(t *testing.T) {
 		assert.True(t, strings.HasSuffix(e.Name(), ".json"))
 	}
 }
+
+func TestWireConstantsArePinned(t *testing.T) {
+	assert.Equal(t, 1, ProtocolVersion)
+	for _, c := range []struct{ got, want string }{
+		{HeaderProtocol, "Ember-Remote-Protocol"},
+		{HeaderSession, "Ember-Remote-Session"},
+		{RoutePrefix, "/remote/v1/"},
+		{RouteInfo, "/remote/v1/info"},
+		{RouteStream, "/remote/v1/stream"},
+		{RouteConfig, "/remote/v1/config"},
+		{RouteCertificates, "/remote/v1/certificates"},
+		{EventHello, "hello"},
+		{EventSnapshot, "snapshot"},
+		{EventStatus, "status"},
+		{EventLogs, "logs"},
+		{CapabilitySnapshot, "snapshot"},
+		{CapabilityLogs, "logs"},
+		{CapabilityConfig, "config"},
+		{CapabilityCertificates, "certificates"},
+		{StateOK, "ok"},
+		{StateStale, "stale"},
+		{StateUnreachable, "unreachable"},
+		{DefaultInstance, "default"},
+	} {
+		assert.Equal(t, c.want, c.got)
+	}
+}
