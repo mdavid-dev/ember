@@ -2,6 +2,7 @@ package remote
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -53,6 +54,46 @@ func FuzzDecodeWireSnapshot(f *testing.F) {
 		_ = ws.ToSnapshot()
 		if _, err := Marshal(ws); err != nil {
 			t.Fatalf("decoded snapshot does not re-encode: %v", err)
+		}
+	})
+}
+
+func FuzzParseAuthFile(f *testing.F) {
+	f.Add([]byte(testAuthFile()))
+	f.Add([]byte("[[token]]\nname = \"a\"\nsha256 = \"" + digestOf(aliceToken) + "\"\nscopes = [\"snapshot\"]\nexpires = 2026-12-31\n"))
+	f.Add([]byte("[[client_cert]]\ncn = \"x\"\nscopes = [\"logs\", \"logs\"]\n"))
+	f.Add([]byte("[token]\n"))
+	f.Add([]byte("token = 1\n[[client_cert]]\n"))
+
+	f.Fuzz(func(t *testing.T, input []byte) {
+		ids, err := ParseAuthFile(input)
+		if err != nil {
+			if ids != nil {
+				t.Fatal("identities returned alongside an error")
+			}
+			return
+		}
+		if len(ids.tokens) == 0 && len(ids.certs) == 0 {
+			t.Fatal("a valid file grants at least one identity")
+		}
+		check := func(scopes []Scope) {
+			if len(scopes) == 0 {
+				t.Fatal("identity without scopes")
+			}
+			for _, s := range scopes {
+				if !slices.Contains(knownScopes, s) {
+					t.Fatalf("unknown scope %q accepted", s)
+				}
+			}
+		}
+		for _, tok := range ids.tokens {
+			check(tok.scopes)
+			if validName(tok.name) != nil {
+				t.Fatalf("invalid name %q accepted", tok.name)
+			}
+		}
+		for _, c := range ids.certs {
+			check(c.scopes)
 		}
 	})
 }

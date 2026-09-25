@@ -16,6 +16,7 @@ TARGETS=(
   "./internal/fetcher FuzzParseLogLine"
   "./internal/remote FuzzSSEReader"
   "./internal/remote FuzzDecodeWireSnapshot"
+  "./internal/remote FuzzParseAuthFile"
   "./pkg/metrics FuzzParsePrometheus"
 )
 
