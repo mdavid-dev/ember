@@ -9,6 +9,10 @@
 package metrics
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"math"
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
@@ -141,6 +145,59 @@ type MetricsSnapshot struct {
 type HistogramBucket struct {
 	UpperBound      float64 `json:"upperBound"`
 	CumulativeCount float64 `json:"cumulativeCount"`
+}
+
+// histogramBucketJSON has no methods, so encoding it does not recurse.
+type histogramBucketJSON struct {
+	UpperBound      any     `json:"upperBound"`
+	CumulativeCount float64 `json:"cumulativeCount"`
+}
+
+// MarshalJSON writes infinite bounds as "+Inf"/"-Inf": JSON has none, and the +Inf bucket holds the total count.
+func (b HistogramBucket) MarshalJSON() ([]byte, error) {
+	var bound any = b.UpperBound
+	switch {
+	case math.IsInf(b.UpperBound, 1):
+		bound = "+Inf"
+	case math.IsInf(b.UpperBound, -1):
+		bound = "-Inf"
+	}
+	return json.Marshal(histogramBucketJSON{UpperBound: bound, CumulativeCount: b.CumulativeCount})
+}
+
+// UnmarshalJSON accepts a number, "+Inf" or "-Inf".
+func (b *HistogramBucket) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		UpperBound      json.RawMessage `json:"upperBound"`
+		CumulativeCount float64         `json:"cumulativeCount"`
+	}
+	raw.CumulativeCount = b.CumulativeCount
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	bound := b.UpperBound
+	switch {
+	case len(raw.UpperBound) > 0 && raw.UpperBound[0] == '"':
+		var s string
+		if err := json.Unmarshal(raw.UpperBound, &s); err != nil {
+			return err
+		}
+		switch s {
+		case "+Inf":
+			bound = math.Inf(1)
+		case "-Inf":
+			bound = math.Inf(-1)
+		default:
+			return fmt.Errorf("histogram bucket: invalid upperBound %q: want a number, \"+Inf\" or \"-Inf\"", s)
+		}
+	case len(raw.UpperBound) > 0 && !bytes.Equal(raw.UpperBound, []byte("null")):
+		if err := json.Unmarshal(raw.UpperBound, &bound); err != nil {
+			return fmt.Errorf("histogram bucket: upperBound: %w", err)
+		}
+	}
+	b.UpperBound = bound
+	b.CumulativeCount = raw.CumulativeCount
+	return nil
 }
 
 // ProcessMetrics holds OS-level metrics for the monitored server process.

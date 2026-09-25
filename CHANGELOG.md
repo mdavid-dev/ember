@@ -2,6 +2,12 @@
 
 All notable changes to Ember are documented here.
 
+## Unreleased
+
+### Changed
+
+- **[BC BREAK]** `pkg/metrics.HistogramBucket` now encodes an infinite `UpperBound` as the string `"+Inf"` (or `"-Inf"`), the spelling of Prometheus' `le` label, so a snapshot holding the `+Inf` bucket no longer fails to encode with `json: unsupported value: +Inf`. Finite bounds are still plain numbers, byte for byte. `upperBound` can therefore be a number or a string: a plugin that decodes buckets with its own type must accept both, while decoding into `HistogramBucket` handles it. The `--json` output is unaffected, as it still drops that bucket.
+
 ## 1.6.1 - 2026-08-31
 
 ### Changed
