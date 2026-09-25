@@ -30,6 +30,9 @@ func (a *App) doRestart() tea.Cmd {
 }
 
 func (a *App) doFetchConfig() tea.Cmd {
+	if a.remoteReason("config") != "" {
+		return nil
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), globalFetchTimeout)
 		defer cancel()
@@ -42,6 +45,9 @@ func (a *App) doFetchConfig() tea.Cmd {
 }
 
 func (a *App) doFetchCertificates() tea.Cmd {
+	if a.remoteReason("certificates") != "" {
+		return nil
+	}
 	// capture hosts on the main goroutine to avoid a data race with Update().
 	var hosts []string
 	for _, hd := range a.state.HostDerived {
@@ -70,6 +76,9 @@ func (a *App) doFetchCertificates() tea.Cmd {
 }
 
 func (a *App) doFetchRPConfig() tea.Cmd {
+	if a.remoteReason("config") != "" {
+		return nil
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), globalFetchTimeout)
 		defer cancel()

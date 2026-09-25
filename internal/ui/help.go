@@ -111,7 +111,7 @@ func renderHelp(sortBy model.SortField, hostSortBy model.HostSortField, certSort
 	return helpStyle.Width(width).Render(content)
 }
 
-func renderHelpOverlay(width, height int, hasFrankenPHP bool, pluginTabs []*pluginTab, visibleTabs []tab) string {
+func renderHelpOverlay(width, height int, hasFrankenPHP bool, pluginTabs []*pluginTab, visibleTabs []tab, remote bool) string {
 	// Number keys 1-9 jump to visibleTabs[n-1], so the hint must count every
 	// visible tab (core and plugin), capped at the 9 available number keys.
 	tabCount := min(len(visibleTabs), 9)
@@ -144,9 +144,12 @@ func renderHelpOverlay(width, height int, hasFrankenPHP bool, pluginTabs []*plug
 		{"l", "Jump to Logs for selected host (Caddy tab)"},
 		{"g", "Toggle graphs"},
 	}
-	if hasFrankenPHP {
+	switch {
+	case remote:
+		actions = append(actions, binding{"r", "Restart workers: unavailable in a remote session (read-only)"})
+	case hasFrankenPHP:
 		actions = append(actions, binding{"r", "Refresh config/certs / restart workers"})
-	} else {
+	default:
 		actions = append(actions, binding{"r", "Refresh config/certs"})
 	}
 	actions = append(actions,

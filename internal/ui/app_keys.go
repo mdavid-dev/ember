@@ -253,7 +253,7 @@ func (a *App) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		if a.activeTab == tabFrankenPHP {
-			a.mode = viewConfirmRestart
+			a.askRestart()
 		} else if pt := a.activePluginTab(); pt != nil && pt.renderer != nil {
 			safePluginHandleKey(pt.renderer, msg) //nolint:errcheck // consumed status is informational
 		}
@@ -311,7 +311,7 @@ func (a *App) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 	case "r":
 		if a.activeTab == tabFrankenPHP {
-			a.mode = viewConfirmRestart
+			a.askRestart()
 		}
 	case "?":
 		a.prevMode = a.mode

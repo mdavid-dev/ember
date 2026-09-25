@@ -46,6 +46,7 @@ type Config struct {
 	RuntimeLogBuffer *model.LogBuffer
 	RouteAggregator  *model.RouteAggregator
 	LogSource        string // path or description; empty when no source is known
+	Remote           *RemoteInfo
 }
 
 type tab int
@@ -256,6 +257,9 @@ func (a *App) View() string {
 	listWidth := a.width - panelWidth
 
 	dashboard := renderDashboard(&a.state, listWidth, a.config.Version, lastN(a.history.rps, sparklineSize), lastN(a.history.cpu, sparklineSize), a.stale, a.paused, a.hasFrankenPHP)
+	if a.config.Remote != nil {
+		dashboard = renderRemoteBadge(a.config.Remote, listWidth) + "\n" + dashboard
+	}
 	counts := make(map[tab]string)
 	if a.state.Current != nil {
 		if hostCount := len(a.state.HostDerived); hostCount > 0 {
@@ -328,13 +332,17 @@ func (a *App) View() string {
 		if configAreaHeight < 5 {
 			configAreaHeight = 5
 		}
-		if a.configRoot != nil {
+		if reason := a.remoteReason("config"); reason != "" {
+			contentList = greyStyle.Render(" " + reason)
+		} else if a.configRoot != nil {
 			contentList = renderConfigTree(a.configRoot, a.configCursor, listWidth, configAreaHeight, a.configFilter, a.configFilterMode)
 		} else {
 			contentList = greyStyle.Render(" Loading config...")
 		}
 	case tabCertificates:
-		if a.certificates != nil {
+		if reason := a.remoteReason("certificates"); reason != "" {
+			contentList = greyStyle.Render(" " + reason)
+		} else if a.certificates != nil {
 			certs := a.filteredCerts()
 			if len(certs) == 0 && a.filter != "" {
 				contentList = greyStyle.Render(fmt.Sprintf(" No matches for '%s'", a.filter))
@@ -455,7 +463,7 @@ func (a *App) View() string {
 	}
 
 	if a.mode == viewHelp {
-		return renderHelpOverlay(a.width, a.height, a.hasFrankenPHP, a.pluginTabs, a.tabs)
+		return renderHelpOverlay(a.width, a.height, a.hasFrankenPHP, a.pluginTabs, a.tabs, a.config.Remote != nil)
 	}
 
 	return base

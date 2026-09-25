@@ -18,6 +18,9 @@ import (
 // children) plus a table; the sidepanel stays visible at every width and the
 // table columns absorb any squeeze instead.
 func (a *App) renderLogsTab(width, height int) string {
+	if reason := a.remoteReason("logs"); reason != "" {
+		return greyStyle.Render(" " + reason)
+	}
 	if a.logBuffer == nil && a.runtimeLogBuffer == nil {
 		return greyStyle.Render(" Logs unavailable: Caddy is not local and --log-listen was not set.\n" +
 			" Pass --log-listen :PORT and make sure Caddy can reach this address. See docs/logs.md.")
