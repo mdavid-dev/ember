@@ -73,6 +73,13 @@ func TestAudit_EventKeysArePinned(t *testing.T) {
 			[]string{"session_id", "identity", "duration", "events", "bytes", "reason"},
 		},
 		{
+			func(a *Auditor) {
+				a.SessionRefused(ctx, SessionRefusedEvent{Identity: "alice", ClientCN: "cn", RemoteAddr: "192.0.2.1:1", Reason: RefuseSessionCap})
+			},
+			"remote.session.refused", "WARN",
+			[]string{"identity", "client_cn", "remote_addr", "reason"},
+		},
+		{
 			func(a *Auditor) { a.Read(ctx, ReadEvent{SessionID: "s1", Identity: "alice", Resource: "config"}) },
 			"remote.read", "INFO",
 			[]string{"session_id", "identity", "resource"},

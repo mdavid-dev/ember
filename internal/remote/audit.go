@@ -9,10 +9,11 @@ import (
 
 // Audit event names. Their keys are stable: alerts rely on them.
 const (
-	AuditAuthDenied   = "remote.auth.denied"
-	AuditSessionOpen  = "remote.session.open"
-	AuditSessionClose = "remote.session.close"
-	AuditRead         = "remote.read"
+	AuditAuthDenied     = "remote.auth.denied"
+	AuditSessionOpen    = "remote.session.open"
+	AuditSessionClose   = "remote.session.close"
+	AuditSessionRefused = "remote.session.refused"
+	AuditRead           = "remote.read"
 )
 
 // DenyReason goes to the audit log only, never to the client.
@@ -25,6 +26,13 @@ const (
 	DenyRateLimited DenyReason = "rate_limited"
 	DenyCert        DenyReason = "cert"
 	DenyScope       DenyReason = "scope"
+)
+
+type RefuseReason string
+
+const (
+	RefuseSessionCap RefuseReason = "session_cap"
+	RefuseShutdown   RefuseReason = "shutdown"
 )
 
 type CloseReason string
@@ -97,6 +105,22 @@ func (a *Auditor) SessionOpen(ctx context.Context, e SessionOpenEvent) {
 		slog.Any("scopes", e.Scopes),
 		slog.String("user_agent", clip(e.UserAgent)),
 		slog.String("ember_version", clip(e.EmberVersion)),
+	)
+}
+
+type SessionRefusedEvent struct {
+	Identity   string
+	ClientCN   string
+	RemoteAddr string
+	Reason     RefuseReason
+}
+
+func (a *Auditor) SessionRefused(ctx context.Context, e SessionRefusedEvent) {
+	a.emit(ctx, slog.LevelWarn, AuditSessionRefused,
+		slog.String("identity", e.Identity),
+		slog.String("client_cn", clip(e.ClientCN)),
+		slog.String("remote_addr", e.RemoteAddr),
+		slog.String("reason", string(e.Reason)),
 	)
 }
 
