@@ -15,7 +15,12 @@ type fetchMsg struct {
 	snap *fetcher.Snapshot
 	err  error
 }
-type restartResultMsg struct{ err error }
+type restartResultMsg struct {
+	err error
+	// unsupported reports a fetcher without worker restart, such as a remote
+	// session: the restart never happened, and neither did a failure.
+	unsupported bool
+}
 type metricsServerErrMsg struct{ err error }
 type configFetchMsg struct {
 	raw json.RawMessage
@@ -198,9 +203,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, rpCmd
 	case restartResultMsg:
-		if msg.err != nil {
+		switch {
+		case msg.unsupported:
+			a.status = "worker restart not available on this connection"
+		case msg.err != nil:
 			a.status = "restart failed: " + msg.err.Error()
-		} else {
+		default:
 			a.status = "workers restarted"
 		}
 		return a, nil

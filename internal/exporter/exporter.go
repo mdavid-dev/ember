@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/alexandre-daubois/ember/internal/instrumentation"
 	"github.com/alexandre-daubois/ember/internal/model"
 	"github.com/alexandre-daubois/ember/pkg/metrics"
@@ -61,6 +62,17 @@ func (h *StateHolder) StoreInstance(name, addr string, s model.State, exports []
 type instanceEntry struct {
 	name string
 	slot *instanceSlot
+}
+
+// Latest returns the last snapshot stored for an instance ("" in
+// single-instance mode), or nil. The snapshot is a copy the holder never
+// mutates, safe to read from any goroutine.
+func (h *StateHolder) Latest(name string) *fetcher.Snapshot {
+	slot, _ := h.lookup(name)
+	if slot == nil {
+		return nil
+	}
+	return slot.state.Current
 }
 
 func (h *StateHolder) lookup(name string) (*instanceSlot, bool) {

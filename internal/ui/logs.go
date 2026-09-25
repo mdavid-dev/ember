@@ -19,6 +19,9 @@ import (
 // table columns absorb any squeeze instead.
 func (a *App) renderLogsTab(width, height int) string {
 	if a.logBuffer == nil && a.runtimeLogBuffer == nil {
+		if reason := a.config.LogsUnavailable; reason != "" {
+			return greyStyle.Render(" Logs unavailable: " + sanitizeControl(reason))
+		}
 		return greyStyle.Render(" Logs unavailable: Caddy is not local and --log-listen was not set.\n" +
 			" Pass --log-listen :PORT and make sure Caddy can reach this address. See docs/logs.md.")
 	}

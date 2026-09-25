@@ -123,16 +123,27 @@ func runDaemon(ctx context.Context, instances []*instance, cfg *config, plugins 
 
 	dPlugins := newDaemonPlugins(plugins)
 
-	srv := newMetricsServer(cfg.expose, newMetricsHandler(holder, cfg, perInstanceIntervals(instances)))
+	var api *remoteAPI
+	if cfg.remoteToken != "" {
+		api = newRemoteAPI(holder, instances)
+		defer api.startLogs(cfg, instances)()
+	}
+	srv, err := newExposeServer(cfg, holder, perInstanceIntervals(instances), api)
+	if err != nil {
+		return err
+	}
+	// Read before serving: net/http rewrites TLSConfig when it starts.
+	exposeTLS := srv.TLSConfig != nil
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := serveExpose(srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			cancel(err)
 		}
 	}()
 
 	log := cfg.logger
-	log.Info("daemon started", "metrics_url", metricsURL(cfg.expose), "instances", len(instances))
+	log.Info("daemon started", "metrics_url", metricsURL(cfg.expose), "instances", len(instances),
+		"tls", exposeTLS, "remote_api", cfg.remoteToken != "")
 
 	// Arm before pollAll: it blocks on a full fetch of every instance, and
 	// until Notify runs both signals still terminate the process.

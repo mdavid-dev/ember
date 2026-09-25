@@ -114,8 +114,15 @@ func TestDoRestart_RestarterError(t *testing.T) {
 func TestDoRestart_NonRestarterFetcherReturnsEmptyMsg(t *testing.T) {
 	app := NewApp(noOpFetcher{}, Config{Interval: time.Second})
 	got := app.doRestart()().(restartResultMsg)
-	assert.NoError(t, got.err,
+	require.NoError(t, got.err,
 		"a fetcher without restart support must produce a no-op message, not an error")
+	assert.True(t, got.unsupported)
+}
+
+func TestRestartResult_UnsupportedDoesNotClaimSuccess(t *testing.T) {
+	app := NewApp(noOpFetcher{}, Config{Interval: time.Second})
+	app.Update(restartResultMsg{unsupported: true})
+	assert.Equal(t, "worker restart not available on this connection", app.status)
 }
 
 func TestDoFetchConfig_ConfigFetcher(t *testing.T) {

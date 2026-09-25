@@ -25,7 +25,7 @@ func (a *App) doRestart() tea.Cmd {
 		if r, ok := a.fetcher.(restarter); ok {
 			return restartResultMsg{err: r.RestartWorkers(ctx)}
 		}
-		return restartResultMsg{}
+		return restartResultMsg{unsupported: true}
 	}
 }
 

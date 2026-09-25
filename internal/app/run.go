@@ -43,6 +43,13 @@ type config struct {
 	configDefault string
 	addrsFromFile bool
 	stdinLogs     bool
+
+	remote         string
+	remoteToken    string
+	remoteInstance string
+	exposeCert     string
+	exposeKey      string
+	exposeClientCA string
 }
 
 func Run(args []string, version string) error {
@@ -84,6 +91,11 @@ Keybindings:
   ember --json --once                     # single JSON snapshot and exit
   ember --expose :9191                    # TUI + Prometheus endpoint
   ember --expose :9191 --daemon           # headless metrics exporter
+  ember --daemon --expose :9443 \
+        --expose-cert tls.crt --expose-key tls.key \
+        --remote-token "$TOKEN"         # serve remote TUIs
+  ember --remote https://ember.prod:9443 \
+        --remote-token "$TOKEN"         # TUI on a remote daemon
   ember --daemon --expose :9191 \
         --addr web1=https://web1.fr \
         --addr web2=https://web2.fr     # multi-instance daemon
@@ -110,6 +122,15 @@ Keybindings:
 			defer cancel()
 			ctx, tCancel := contextWithTimeout(ctx, cfg.timeout)
 			defer tCancel()
+
+			if cfg.remote != "" {
+				// Not an error: bindEnv also marks --addr as set from
+				// EMBER_ADDR / CADDY_API_URL, often exported on a dev machine.
+				if cmd.Flag("addr").Changed {
+					cfg.logger.Warn("--addr is ignored with --remote: the remote daemon picks the Caddy instances")
+				}
+				return runRemote(&cfg, cmd.Version)
+			}
 
 			multi := len(cfg.addrs) >= 2
 
@@ -176,6 +197,12 @@ Keybindings:
 	f.StringVar(&cfg.logListen, "log-listen", "", "Receive logs from Caddy via TCP, e.g. ':9210' or '127.0.0.1:9210'. Required when Caddy is on a remote host; auto-bound on a local loopback port otherwise.")
 	f.BoolVar(&cfg.stdinLogs, "stdin-logs", false, "Read Caddy logs directly from stdin instead of registering a net_writer")
 	f.BoolVar(&cfg.stdinLogs, "from-stdin", false, "Read Caddy logs directly from stdin instead of registering a net_writer (alias for --stdin-logs)")
+	f.StringVar(&cfg.remote, "remote", "", "Run the TUI against a remote Ember daemon (e.g. https://ember.prod:9443) instead of a Caddy admin API")
+	f.StringVar(&cfg.remoteToken, "remote-token", "", "Bearer token: required from remote TUIs by --daemon, or sent to the daemon with --remote (prefer EMBER_REMOTE_TOKEN)")
+	f.StringVar(&cfg.remoteInstance, "remote-instance", "", "Instance to watch when the remote daemon monitors several Caddy servers")
+	f.StringVar(&cfg.exposeCert, "expose-cert", "", "TLS certificate for the --expose endpoint")
+	f.StringVar(&cfg.exposeKey, "expose-key", "", "TLS private key for the --expose endpoint")
+	f.StringVar(&cfg.exposeClientCA, "expose-client-ca", "", "Require client certificates signed by this CA on the --expose endpoint (mTLS)")
 
 	cmd.AddCommand(newStatusCmd(&cfg))
 	cmd.AddCommand(newWaitCmd(&cfg))
@@ -219,14 +246,20 @@ func initLogger(cfg *config) {
 }
 
 var envBindings = map[string]string{
-	"addr":           "EMBER_ADDR",
-	"interval":       "EMBER_INTERVAL",
-	"expose":         "EMBER_EXPOSE",
-	"metrics-prefix": "EMBER_METRICS_PREFIX",
-	"metrics-auth":   "EMBER_METRICS_AUTH",
-	"log-listen":     "EMBER_LOG_LISTEN",
-	"config":         "EMBER_CONFIG",
-	"stdin-logs":     "EMBER_STDIN_LOGS",
+	"addr":             "EMBER_ADDR",
+	"interval":         "EMBER_INTERVAL",
+	"expose":           "EMBER_EXPOSE",
+	"metrics-prefix":   "EMBER_METRICS_PREFIX",
+	"metrics-auth":     "EMBER_METRICS_AUTH",
+	"log-listen":       "EMBER_LOG_LISTEN",
+	"config":           "EMBER_CONFIG",
+	"stdin-logs":       "EMBER_STDIN_LOGS",
+	"remote":           "EMBER_REMOTE",
+	"remote-token":     "EMBER_REMOTE_TOKEN",
+	"expose-cert":      "EMBER_EXPOSE_CERT",
+	"expose-key":       "EMBER_EXPOSE_KEY",
+	"remote-instance":  "EMBER_REMOTE_INSTANCE",
+	"expose-client-ca": "EMBER_EXPOSE_CLIENT_CA",
 }
 
 // bindEnv applies EMBER_* and other supported variables (e.g. CADDY_API_URL)
@@ -375,6 +408,9 @@ func validate(cfg *config) error {
 		if cfg.expose == "" {
 			return fmt.Errorf("--metrics-auth requires --expose")
 		}
+	}
+	if err := validateRemote(cfg); err != nil {
+		return err
 	}
 	if cfg.metricsPrefix != "" && !isValidMetricPrefix(cfg.metricsPrefix) {
 		return fmt.Errorf("--metrics-prefix %q is not a valid Prometheus metric name prefix (allowed: letters, digits, underscores; must not start with a digit; e.g. \"my_app\")", cfg.metricsPrefix)

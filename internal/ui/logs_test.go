@@ -486,3 +486,12 @@ func TestHandleListKey_JumpFromCaddyToLogs_NoBufferIsNoOp(t *testing.T) {
 
 	assert.Equal(t, tabCaddy, app.activeTab, "without a log buffer, l must not switch tab")
 }
+
+func TestRenderLogsTab_RemoteReason(t *testing.T) {
+	app := NewApp(nil, Config{LogsUnavailable: "the remote daemon does not collect logs"})
+
+	out := stripANSI(app.renderLogsTab(120, 20))
+
+	assert.Contains(t, out, "the remote daemon does not collect logs")
+	assert.NotContains(t, out, "--log-listen :PORT", "the local hint does not apply to a remote session")
+}

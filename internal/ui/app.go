@@ -46,6 +46,12 @@ type Config struct {
 	RuntimeLogBuffer *model.LogBuffer
 	RouteAggregator  *model.RouteAggregator
 	LogSource        string // path or description; empty when no source is known
+	// LogsUnavailable explains an empty Logs tab when the generic hint
+	// (--log-listen on this machine) does not apply.
+	LogsUnavailable string
+	// Remote names the daemon a remote session reads from; empty for a
+	// session on a Caddy admin API.
+	Remote string
 }
 
 type tab int
@@ -255,7 +261,7 @@ func (a *App) View() string {
 	}
 	listWidth := a.width - panelWidth
 
-	dashboard := renderDashboard(&a.state, listWidth, a.config.Version, lastN(a.history.rps, sparklineSize), lastN(a.history.cpu, sparklineSize), a.stale, a.paused, a.hasFrankenPHP)
+	dashboard := renderDashboard(&a.state, listWidth, a.config.Version, a.config.Remote, lastN(a.history.rps, sparklineSize), lastN(a.history.cpu, sparklineSize), a.stale, a.paused, a.hasFrankenPHP)
 	counts := make(map[tab]string)
 	if a.state.Current != nil {
 		if hostCount := len(a.state.HostDerived); hostCount > 0 {
