@@ -1,0 +1,32 @@
+# FrankenPHP with its admin API left unpublished, watched by an Ember daemon
+# that serves the remote API. `make up` generates ./secrets first; the smoke
+# test points EMBER_REMOTE_SECRETS at its own.
+name: ember-remote
+
+services:
+  frankenphp:
+    image: dunglas/frankenphp:latest
+    ports:
+      - "${REMOTE_SITE_PORT:-18080}:8080"
+    volumes:
+      - ../frankenphp/public:/app/public
+      - ../frankenphp/Caddyfile:/etc/frankenphp/Caddyfile
+
+  ember:
+    build:
+      context: ../..
+    command:
+      - --daemon
+      - --expose=:9191
+      - --addr=http://frankenphp:2019
+      - --remote-listen=:9443
+      - --remote-cert=/secrets/daemon.pem
+      - --remote-key=/secrets/daemon-key.pem
+      - --remote-auth=/secrets/auth.toml
+      - --log-format=json
+    ports:
+      - "${REMOTE_API_PORT:-19443}:9443"
+    volumes:
+      - ${EMBER_REMOTE_SECRETS:-./secrets}:/secrets:ro
+    depends_on:
+      - frankenphp

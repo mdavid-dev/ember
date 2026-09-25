@@ -6,7 +6,7 @@ LDFLAGS   := -s -w
 
 GO_TEST_FLAGS := -race -shuffle=on -count=1
 
-.PHONY: build test test-nocolor lint bench check integration integration-docker fuzz clean help
+.PHONY: build test test-nocolor lint bench check integration integration-docker remote-smoke fuzz clean help
 
 build: ## Build the binary
 	go build -ldflags="$(LDFLAGS)" -o $(BINARY) $(CMD)
@@ -28,6 +28,9 @@ integration: ## Run integration tests (requires running Caddy)
 
 integration-docker: ## Run multi-Caddy smoke test (requires Docker)
 	go test -tags integration_docker $(GO_TEST_FLAGS) -v -run MultiCaddySmoke ./internal/app/
+
+remote-smoke: ## Run the remote mode smoke test against local/remote (requires Docker)
+	go test -tags integration_docker $(GO_TEST_FLAGS) -v -timeout 10m -run RemoteSmoke ./internal/app/
 
 fuzz: ## Run all fuzz targets for 30s each
 	./scripts/run_fuzz.sh 30s
