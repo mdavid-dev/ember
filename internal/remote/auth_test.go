@@ -248,6 +248,11 @@ func TestMiddleware_Unauthorized(t *testing.T) {
 			assert.Equal(t, AuditAuthDenied, records[0]["msg"])
 			assert.Equal(t, string(tc.reason), records[0]["reason"])
 			assert.Equal(t, "192.0.2.7:4000", records[0]["remote_addr"])
+			if tc.reason == DenyExpired {
+				assert.Equal(t, "carol", records[0]["identity"], "an expired token still names its owner")
+			} else {
+				assert.Empty(t, records[0]["identity"])
+			}
 		})
 	}
 	for _, b := range bodies {
@@ -324,6 +329,7 @@ func TestMiddleware_ForbiddenIsAuditedButNotAFailure(t *testing.T) {
 	records := h.auditRecords(t)
 	require.Len(t, records, 2*defaultMaxFailures)
 	assert.Equal(t, string(DenyScope), records[0]["reason"])
+	assert.Equal(t, "bob", records[0]["identity"])
 }
 
 func TestMiddleware_RateLimit(t *testing.T) {
@@ -346,14 +352,15 @@ func TestMiddleware_RateLimit(t *testing.T) {
 	h.clock.Advance(time.Second)
 	assert.Equal(t, http.StatusOK, h.do(RouteStream, "198.51.100.9:1", bearer(aliceToken)).Code)
 
-	records := h.auditRecords(t)
-	var limited int
-	for _, r := range records {
+	var limited []map[string]any
+	for _, r := range h.auditRecords(t) {
 		if r["reason"] == string(DenyRateLimited) {
-			limited++
+			limited = append(limited, r)
 		}
 	}
-	assert.Equal(t, 2, limited, "every 429 is audited")
+	require.Len(t, limited, 1, "audited when the block starts, not on every 429")
+	assert.Equal(t, "198.51.100.9", limited[0]["source"])
+	assert.InDelta(t, defaultMaxFailures, limited[0]["failures"], 0)
 }
 
 func TestNoSecretReachesTheLogs(t *testing.T) {
@@ -497,23 +504,6 @@ func TestIdentityFrom_Absent(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestClientIP(t *testing.T) {
-	for in, want := range map[string]string{
-		"192.0.2.1:5000":          "192.0.2.1",
-		"[2001:db8::1]:443":       "2001:db8::1",
-		"[2001:DB8:0::1]:443":     "2001:db8::1",
-		"[::ffff:192.0.2.1]:1":    "192.0.2.1",
-		"[fe80::1%eth0]:1":        "fe80::1",
-		"192.0.2.1":               "192.0.2.1",
-		"not-an-address":          "not-an-address",
-		"@":                       "@",
-		"proxy.internal:8080":     "proxy.internal",
-		"[2001:db8::1%25zone]:80": "2001:db8::1",
-	} {
-		assert.Equal(t, want, clientIP(in), in)
-	}
-}
-
 type testPKI struct {
 	caPool *x509.CertPool
 	ca     *x509.Certificate
@@ -607,9 +597,20 @@ func TestMiddleware_MutualTLS(t *testing.T) {
 	code, _ = get(nil, "")
 	assert.Equal(t, http.StatusUnauthorized, code)
 
-	var reasons []any
+	var reasons, cns []any
 	for _, r := range h.auditRecords(t) {
 		reasons = append(reasons, r["reason"])
+		cns = append(cns, r["client_cn"])
 	}
 	assert.Equal(t, []any{"cert", "invalid", "missing"}, reasons)
+	assert.Equal(t, []any{"mallory", "dave", ""}, cns, "the verified CN is audited on refusals too")
+}
+
+func TestMiddleware_RateLimitGroupsIPv6By64(t *testing.T) {
+	h := newAuthHarness(t, testAuthFile())
+	for i := range defaultMaxFailures {
+		h.do(RouteStream, fmt.Sprintf("[2001:db8::%x]:1", i+1), bearer("wrong"))
+	}
+	assert.Equal(t, http.StatusTooManyRequests, h.do(RouteStream, "[2001:db8::ffff]:1", bearer(aliceToken)).Code)
+	assert.Equal(t, http.StatusOK, h.do(RouteStream, "[2001:db8:0:1::1]:1", bearer(aliceToken)).Code)
 }

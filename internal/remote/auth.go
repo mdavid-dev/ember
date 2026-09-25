@@ -7,9 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"slices"
 	"strconv"
@@ -246,7 +244,7 @@ func (ids *Identities) authenticate(r *http.Request, now time.Time) (Identity, D
 	if values := r.Header.Values("Authorization"); len(values) > 0 {
 		token, ok := bearerToken(values)
 		if !ok {
-			return Identity{}, DenyInvalid
+			return Identity{ClientCN: cn}, DenyInvalid
 		}
 		digest := sha256.Sum256([]byte(token))
 		// No early exit: the time taken must not depend on which entry matched.
@@ -257,11 +255,11 @@ func (ids *Identities) authenticate(r *http.Request, now time.Time) (Identity, D
 			}
 		}
 		if found < 0 {
-			return Identity{}, DenyInvalid
+			return Identity{ClientCN: cn}, DenyInvalid
 		}
 		t := ids.tokens[found]
 		if !t.expires.IsZero() && !now.Before(t.expires) {
-			return Identity{}, DenyExpired
+			return Identity{Name: t.name, ClientCN: cn}, DenyExpired
 		}
 		return Identity{Name: t.name, ClientCN: cn, Scopes: t.scopes, cred: credential{digest: t.digest}}, ""
 	}
@@ -269,7 +267,7 @@ func (ids *Identities) authenticate(r *http.Request, now time.Time) (Identity, D
 	if cn != "" {
 		c, ok := ids.certs[cn]
 		if !ok {
-			return Identity{}, DenyCert
+			return Identity{ClientCN: cn}, DenyCert
 		}
 		return Identity{Name: c.cn, ClientCN: cn, Scopes: c.scopes, cred: credential{cn: c.cn}}, ""
 	}
@@ -356,13 +354,16 @@ func IdentityFrom(ctx context.Context) (Identity, bool) {
 // Middleware answers every 401 with the same body: the reason goes to the audit log only.
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		source := clientIP(r.RemoteAddr)
-		denied := func(reason DenyReason) {
-			a.audit.AuthDenied(r.Context(), AuthDeniedEvent{RemoteAddr: r.RemoteAddr, Reason: reason, UserAgent: r.UserAgent()})
+		source := sourceKey(r.RemoteAddr)
+		denied := func(reason DenyReason, id Identity) {
+			a.audit.AuthDenied(r.Context(), AuthDeniedEvent{
+				RemoteAddr: r.RemoteAddr, Reason: reason, UserAgent: r.UserAgent(),
+				Identity: id.Name, ClientCN: id.ClientCN, Source: source, Failures: a.limiter.maxFailures,
+			})
 		}
 
+		// A 429 is audited once, when the block starts: a flood must not flood the log.
 		if ok, wait := a.limiter.Allow(source); !ok {
-			denied(DenyRateLimited)
 			w.Header().Set("Retry-After", strconv.Itoa(int((wait+time.Second-1)/time.Second)))
 			writeError(w, http.StatusTooManyRequests, ErrorResponse{Error: "too many failed authentication attempts"})
 			return
@@ -370,8 +371,10 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 
 		id, reason := a.ids.Load().authenticate(r, a.now())
 		if reason != "" {
-			a.limiter.Fail(source)
-			denied(reason)
+			denied(reason, id)
+			if a.limiter.Fail(source) {
+				denied(DenyRateLimited, id)
+			}
 			w.Header().Set("WWW-Authenticate", `Bearer realm="ember-remote"`)
 			writeError(w, http.StatusUnauthorized, ErrorResponse{Error: "unauthorized"})
 			return
@@ -383,24 +386,13 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if required != "" && !id.Has(required) {
-			denied(DenyScope)
+			denied(DenyScope, id)
 			writeError(w, http.StatusForbidden, ErrorResponse{Error: fmt.Sprintf("your identity lacks the %q scope", required)})
 			return
 		}
 
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
 	})
-}
-
-func clientIP(remoteAddr string) string {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		host = remoteAddr
-	}
-	if addr, err := netip.ParseAddr(host); err == nil {
-		return addr.Unmap().WithZone("").String()
-	}
-	return host
 }
 
 func writeError(w http.ResponseWriter, status int, body ErrorResponse) {

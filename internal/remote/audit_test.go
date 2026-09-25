@@ -46,7 +46,14 @@ func TestAudit_EventKeysArePinned(t *testing.T) {
 				a.AuthDenied(ctx, AuthDeniedEvent{RemoteAddr: "192.0.2.1:1", Reason: DenyExpired, UserAgent: "ember/1.7.0"})
 			},
 			"remote.auth.denied", "WARN",
-			[]string{"remote_addr", "reason", "user_agent"},
+			[]string{"remote_addr", "reason", "user_agent", "identity", "client_cn"},
+		},
+		{
+			func(a *Auditor) {
+				a.AuthDenied(ctx, AuthDeniedEvent{RemoteAddr: "[2001:db8::1]:1", Reason: DenyRateLimited, Source: "2001:db8::/64", Failures: 10})
+			},
+			"remote.auth.denied", "WARN",
+			[]string{"remote_addr", "reason", "user_agent", "identity", "client_cn", "source", "failures"},
 		},
 		{
 			func(a *Auditor) {
@@ -72,7 +79,7 @@ func TestAudit_EventKeysArePinned(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		t.Run(tc.event, func(t *testing.T) {
+		t.Run(tc.event+"/"+strings.Join(tc.keys, ","), func(t *testing.T) {
 			a, buf := captureAuditor()
 			tc.emit(a)
 			records := decodeLogLines(t, buf)

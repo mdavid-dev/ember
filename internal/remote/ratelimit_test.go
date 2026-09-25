@@ -82,28 +82,77 @@ func TestRateLimiter_WindowExpires(t *testing.T) {
 	assert.True(t, ok, "failures spread over two windows never add up to a block")
 }
 
-func TestRateLimiter_MemoryIsBounded(t *testing.T) {
+func TestRateLimiter_BlockedSourceIsNeverEvicted(t *testing.T) {
 	clock := &fakeClock{t: fixtureTime}
 	l := NewRateLimiter(clock.Now)
-	failN(l, "first", defaultMaxFailures)
-	ok, _ := l.Allow("first")
-	require.False(t, ok)
+	failN(l, "attacker", defaultMaxFailures)
 
 	for i := range defaultTrackedKeys {
 		l.Fail(fmt.Sprintf("10.0.%d.%d", i/256, i%256))
 	}
 	assert.Equal(t, defaultTrackedKeys, l.tracked())
+	ok, _ := l.Allow("attacker")
+	assert.False(t, ok, "fresh failing sources must not push a blocked one out")
+}
 
-	ok, _ = l.Allow("first")
-	assert.True(t, ok, "the least recently failing source is the one forgotten")
-
-	l.Fail("10.0.0.0")
+func TestRateLimiter_EvictsLeastRecentUnblocked(t *testing.T) {
+	l := NewRateLimiter(nil)
+	for i := range defaultTrackedKeys {
+		l.Fail(fmt.Sprint(i))
+	}
+	l.Fail("0")
 	l.Fail("new")
 	assert.Equal(t, defaultTrackedKeys, l.tracked())
-	_, kept := l.entries["10.0.0.0"]
-	assert.True(t, kept, "a fresh failure moves a source to the front of the LRU")
-	_, evicted := l.entries["10.0.0.1"]
+	_, kept := l.entries["0"]
+	assert.True(t, kept, "a fresh failure moves a source to the front")
+	_, evicted := l.entries["1"]
 	assert.False(t, evicted)
+}
+
+func TestRateLimiter_AllBlockedLeavesNewSourcesUntracked(t *testing.T) {
+	clock := &fakeClock{t: fixtureTime}
+	l := NewRateLimiter(clock.Now)
+	l.capacity = 3
+	for _, k := range []string{"a", "b", "c"} {
+		failN(l, k, defaultMaxFailures)
+	}
+	failN(l, "d", 2*defaultMaxFailures)
+	assert.Equal(t, 3, l.tracked())
+	ok, _ := l.Allow("d")
+	assert.True(t, ok, "not tracked, so not blocked: the table stays bounded")
+
+	clock.Advance(time.Minute)
+	failN(l, "d", defaultMaxFailures)
+	ok, _ = l.Allow("d")
+	assert.False(t, ok, "expired blocks free their slots")
+	assert.Equal(t, 1, l.tracked())
+}
+
+func TestRateLimiter_FailReportsTheBlockTransition(t *testing.T) {
+	l := NewRateLimiter(nil)
+	for i := 1; i < defaultMaxFailures; i++ {
+		assert.False(t, l.Fail("a"))
+	}
+	assert.True(t, l.Fail("a"))
+	assert.False(t, l.Fail("a"), "already blocked")
+}
+
+func TestSourceKey(t *testing.T) {
+	for in, want := range map[string]string{
+		"192.0.2.1:5000":          "192.0.2.1",
+		"[::ffff:192.0.2.1]:1":    "192.0.2.1",
+		"[2001:db8::1]:443":       "2001:db8::/64",
+		"[2001:db8::ffff:1]:443":  "2001:db8::/64",
+		"[2001:DB8:0:0:1::1]:443": "2001:db8::/64",
+		"[2001:db8:0:1::1]:443":   "2001:db8:0:1::/64",
+		"[fe80::1%eth0]:1":        "fe80::/64",
+		"192.0.2.1":               "192.0.2.1",
+		"not-an-address":          "not-an-address",
+		"proxy.internal:8080":     "proxy.internal",
+		"[2001:db8::1%25zone]:80": "2001:db8::/64",
+	} {
+		assert.Equal(t, want, sourceKey(in), in)
+	}
 }
 
 func TestRateLimiter_AllowDoesNotTrack(t *testing.T) {

@@ -55,14 +55,25 @@ type AuthDeniedEvent struct {
 	RemoteAddr string
 	Reason     DenyReason
 	UserAgent  string
+	Identity   string
+	ClientCN   string
+	// Source and Failures are set on the rate_limited record only.
+	Source   string
+	Failures int
 }
 
 func (a *Auditor) AuthDenied(ctx context.Context, e AuthDeniedEvent) {
-	a.emit(ctx, slog.LevelWarn, AuditAuthDenied,
+	attrs := []slog.Attr{
 		slog.String("remote_addr", e.RemoteAddr),
 		slog.String("reason", string(e.Reason)),
 		slog.String("user_agent", clip(e.UserAgent)),
-	)
+		slog.String("identity", e.Identity),
+		slog.String("client_cn", clip(e.ClientCN)),
+	}
+	if e.Reason == DenyRateLimited {
+		attrs = append(attrs, slog.String("source", e.Source), slog.Int("failures", e.Failures))
+	}
+	a.emit(ctx, slog.LevelWarn, AuditAuthDenied, attrs...)
 }
 
 type SessionOpenEvent struct {
