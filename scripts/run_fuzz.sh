@@ -14,6 +14,8 @@ TARGETS=(
   "./internal/fetcher FuzzDecodeThreadsResponse"
   "./internal/fetcher FuzzExtractListenPorts"
   "./internal/fetcher FuzzParseLogLine"
+  "./internal/remote FuzzSSEReader"
+  "./internal/remote FuzzDecodeWireSnapshot"
   "./pkg/metrics FuzzParsePrometheus"
 )
 
