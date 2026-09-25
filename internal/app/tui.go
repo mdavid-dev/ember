@@ -34,6 +34,7 @@ func runTUI(f fetcher.Fetcher, cfg *config, interval time.Duration, hasFrankenPH
 		Version:       version,
 		HasFrankenPHP: hasFrankenPHP,
 		Plugins:       plugins,
+		Remote:        cfg.tuiRemote,
 	}
 
 	// Bubble Tea intercepts SIGINT, but not SIGTERM. Without this trap a

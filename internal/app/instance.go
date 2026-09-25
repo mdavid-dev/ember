@@ -12,6 +12,7 @@ import (
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/alexandre-daubois/ember/internal/instrumentation"
 	"github.com/alexandre-daubois/ember/internal/model"
+	"github.com/alexandre-daubois/ember/internal/remote"
 )
 
 type addrSpec struct {
@@ -49,6 +50,9 @@ type instance struct {
 	// transient fetch error keeps exporting the previous data (Fetcher godoc
 	// contract). Only touched by this instance's poll goroutine.
 	pluginData map[string]any
+	// remote receives the polls when --remote-listen is set.
+	remote     *remote.Broadcaster
+	remoteName string
 }
 
 var (

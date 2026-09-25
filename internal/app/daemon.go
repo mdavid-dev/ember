@@ -132,6 +132,11 @@ func runDaemon(ctx context.Context, instances []*instance, cfg *config, plugins 
 	}()
 
 	log := cfg.logger
+	stopRemote, err := startRemoteServer(instances, cfg, cancel)
+	if err != nil {
+		stopMetricsServer(srv)
+		return err
+	}
 	log.Info("daemon started", "metrics_url", metricsURL(cfg.expose), "instances", len(instances))
 
 	// Arm before pollAll: it blocks on a full fetch of every instance, and
@@ -158,6 +163,7 @@ func runDaemon(ctx context.Context, instances []*instance, cfg *config, plugins 
 	for {
 		select {
 		case <-ctx.Done():
+			stopRemote()
 			stopMetricsServer(srv)
 			wg.Wait()
 			for _, inst := range instances {
@@ -249,9 +255,11 @@ func pollInstance(ctx context.Context, inst *instance, holder *exporter.StateHol
 	snap, err := inst.fetcher.Fetch(ctx)
 	if err != nil {
 		inst.throttle.record(ilog, err)
+		inst.publishFailure(err)
 		return
 	}
 	inst.throttle.recover(ilog)
+	inst.publishSnapshot(snap)
 	inst.state.Update(snap)
 
 	if multi {

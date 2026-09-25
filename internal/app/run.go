@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/alexandre-daubois/ember/internal/instrumentation"
+	"github.com/alexandre-daubois/ember/internal/ui"
 	"github.com/alexandre-daubois/ember/pkg/plugin"
 	"github.com/spf13/cobra"
 )
@@ -43,6 +44,8 @@ type config struct {
 	configDefault string
 	addrsFromFile bool
 	stdinLogs     bool
+	remote        remoteConfig
+	tuiRemote     *ui.RemoteInfo
 }
 
 func Run(args []string, version string) error {
@@ -100,8 +103,16 @@ Keybindings:
 				cfg.noColor = true
 			}
 			initLogger(&cfg)
-			if err := loadConfigFile(cmd, &cfg); err != nil {
+			if err := bindRemoteEnv(cmd, &cfg); err != nil {
 				return err
+			}
+			if err := validateRemote(cmd, &cfg); err != nil {
+				return err
+			}
+			if !cfg.remote.client() {
+				if err := loadConfigFile(cmd, &cfg); err != nil {
+					return err
+				}
 			}
 			return validate(&cfg)
 		},
@@ -110,6 +121,10 @@ Keybindings:
 			defer cancel()
 			ctx, tCancel := contextWithTimeout(ctx, cfg.timeout)
 			defer tCancel()
+
+			if cfg.remote.client() {
+				return runRemoteTUI(ctx, &cfg)
+			}
 
 			multi := len(cfg.addrs) >= 2
 
@@ -176,6 +191,7 @@ Keybindings:
 	f.StringVar(&cfg.logListen, "log-listen", "", "Receive logs from Caddy via TCP, e.g. ':9210' or '127.0.0.1:9210'. Required when Caddy is on a remote host; auto-bound on a local loopback port otherwise.")
 	f.BoolVar(&cfg.stdinLogs, "stdin-logs", false, "Read Caddy logs directly from stdin instead of registering a net_writer")
 	f.BoolVar(&cfg.stdinLogs, "from-stdin", false, "Read Caddy logs directly from stdin instead of registering a net_writer (alias for --stdin-logs)")
+	addRemoteFlags(f, &cfg.remote)
 
 	cmd.AddCommand(newStatusCmd(&cfg))
 	cmd.AddCommand(newWaitCmd(&cfg))
