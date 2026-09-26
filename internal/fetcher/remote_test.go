@@ -207,3 +207,41 @@ func TestRemoteFetcher_ReusesOneConnection(t *testing.T) {
 
 	assert.Equal(t, int32(1), conns.Load())
 }
+
+func TestRemoteFetcher_CertificatesComeFromTheDaemon(t *testing.T) {
+	var sources []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/certificates", r.URL.Path)
+		user, _, _ := r.BasicAuth()
+		assert.Equal(t, "alice", user)
+		sources = append(sources, r.URL.Query().Get("source"))
+		_ = json.NewEncoder(w).Encode([]CertificateInfo{{Subject: r.URL.Query().Get("source")}})
+	}))
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	f := NewRemoteFetcher(u, "alice:secret", nil, "test")
+	t.Cleanup(f.CloseIdleConnections)
+
+	pki := f.FetchPKICertificates(context.Background())
+	tls := f.DialTLSCertificates(context.Background(), []string{"ignored.example"})
+
+	assert.Equal(t, []string{"pki", "tls"}, sources)
+	require.Len(t, pki, 1)
+	assert.Equal(t, "pki", pki[0].Subject)
+	require.Len(t, tls, 1)
+	assert.Equal(t, "tls", tls[0].Subject)
+}
+
+func TestRemoteFetcher_CertificatesOnErrorAreEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	f := NewRemoteFetcher(u, "", nil, "test")
+	t.Cleanup(f.CloseIdleConnections)
+
+	assert.Empty(t, f.FetchPKICertificates(context.Background()))
+}

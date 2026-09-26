@@ -46,9 +46,6 @@ func (a *App) doFetchConfig() tea.Cmd {
 }
 
 func (a *App) doFetchCertificates() tea.Cmd {
-	if a.config.Remote != "" {
-		return nil
-	}
 	// capture hosts on the main goroutine to avoid a data race with Update().
 	var hosts []string
 	for _, hd := range a.state.HostDerived {

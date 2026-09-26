@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+
+	"github.com/alexandre-daubois/ember/internal/exporter"
 )
 
 func exposeTLSConfig(cfg *config) (*tls.Config, error) {
@@ -51,6 +53,19 @@ func configureExposeServer(srv *http.Server, cfg *config) error {
 	return nil
 }
 
+// certSources keys each fetcher like the state holder: "" on a single instance.
+func certSources(instances []*instance) map[string]exporter.CertSource {
+	sources := make(map[string]exporter.CertSource, len(instances))
+	for _, inst := range instances {
+		key := ""
+		if isMulti(instances) {
+			key = inst.name
+		}
+		sources[key] = inst.fetcher
+	}
+	return sources
+}
+
 func listenMetrics(srv *http.Server) error {
 	if srv.TLSConfig != nil {
 		return srv.ListenAndServeTLS("", "")
@@ -58,11 +73,11 @@ func listenMetrics(srv *http.Server) error {
 	return srv.ListenAndServe()
 }
 
-// traceRemote logs a TUI's first request, the only one without ?after=, and
-// every refused one.
+// traceRemote logs a TUI's first snapshot request, the only one without
+// ?after=, and every refused remote request.
 func traceRemote(next http.Handler, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/snapshot" {
+		if r.URL.Path != "/snapshot" && r.URL.Path != "/certificates" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -71,7 +86,7 @@ func traceRemote(next http.Handler, log *slog.Logger) http.Handler {
 		switch {
 		case rec.status >= http.StatusBadRequest && rec.status < http.StatusInternalServerError:
 			log.Warn("remote request refused", "remote_addr", r.RemoteAddr, "status", rec.status)
-		case rec.status == http.StatusOK && !r.URL.Query().Has("after"):
+		case rec.status == http.StatusOK && r.URL.Path == "/snapshot" && !r.URL.Query().Has("after"):
 			attrs := []any{"remote_addr", r.RemoteAddr, "user_agent", r.UserAgent()}
 			if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 				attrs = append(attrs, "client_cn", r.TLS.PeerCertificates[0].Subject.CommonName)

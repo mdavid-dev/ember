@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexandre-daubois/ember/internal/exporter"
+	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -181,13 +183,18 @@ func TestValidate_ExposeCertRequiresDaemon(t *testing.T) {
 
 func TestNewMetricsHandler_SnapshotRouteNeedsServeRemote(t *testing.T) {
 	for _, serveRemote := range []bool{false, true} {
-		cfg := &config{interval: time.Second, serveRemote: serveRemote}
+		cfg := &config{interval: time.Second, serveRemote: serveRemote,
+			certSources: map[string]exporter.CertSource{"": fetcher.NewHTTPFetcher("http://127.0.0.1:1", 0)}}
 		rec := httptest.NewRecorder()
 		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/snapshot", nil))
+		certs := httptest.NewRecorder()
+		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(certs, httptest.NewRequest(http.MethodGet, "/certificates?source=pki", nil))
 		if serveRemote {
 			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, http.StatusOK, certs.Code)
 		} else {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusNotFound, certs.Code)
 		}
 	}
 
@@ -234,6 +241,7 @@ func TestServeRemote_BasicAuthOverTLS(t *testing.T) {
 	refused := tlsClient(pki.pool)
 	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/snapshot", "", ""))
 	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/snapshot", "wrong-user", "wrong-pass"))
+	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/certificates?source=pki", "", ""))
 	refused.CloseIdleConnections()
 
 	client := tlsClient(pki.pool)
@@ -243,7 +251,7 @@ func TestServeRemote_BasicAuthOverTLS(t *testing.T) {
 	client.CloseIdleConnections()
 
 	require.Eventually(t, func() bool {
-		return strings.Count(logs.String(), `msg="remote request refused"`) == 2 &&
+		return strings.Count(logs.String(), `msg="remote request refused"`) == 3 &&
 			strings.Contains(logs.String(), "remote session opened")
 	}, 2*time.Second, 10*time.Millisecond)
 	out := logs.String()
@@ -273,4 +281,14 @@ func TestServeRemote_ClientCARequiresCertificate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, getWithAuth(t, tlsClient(pki.pool, cert), url+"/snapshot", "", ""))
 	assert.Contains(t, logs.String(), "client_cn=alice-laptop")
+}
+
+func TestCertSources_KeyedLikeTheHolder(t *testing.T) {
+	single := []*instance{{name: "web"}}
+	assert.Contains(t, certSources(single), "")
+
+	multi := []*instance{{name: "web1"}, {name: "web2"}}
+	sources := certSources(multi)
+	assert.Contains(t, sources, "web1")
+	assert.Contains(t, sources, "web2")
 }

@@ -19,7 +19,7 @@ Remote sessions and refused requests are logged by the daemon.
 EMBER_REMOTE_AUTH=ops:secret ember --remote https://prod:9191 --ca-cert ca.pem
 ```
 
-`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. On a multi-instance daemon, add `?instance=NAME` to the URL. The Logs, Caddy Config and Certificates tabs and worker restart are not available remotely.
+`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. On a multi-instance daemon, add `?instance=NAME` to the URL. The Logs and Caddy Config tabs and worker restart are not available remotely; the Certificates tab shows what the daemon sees.
 
 ## Security
 

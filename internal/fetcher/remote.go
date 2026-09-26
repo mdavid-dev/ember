@@ -20,8 +20,8 @@ type RemoteSnapshot struct {
 	Snapshot *Snapshot     `json:"snapshot"`
 }
 
-// RemoteFetcher reads snapshots from an Ember daemon started with
-// --serve-remote. It only implements Fetch: a remote session is read-only.
+// RemoteFetcher reads snapshots and certificates from an Ember daemon started
+// with --serve-remote. It cannot restart workers: a remote session is read-only.
 type RemoteFetcher struct {
 	base       *url.URL
 	user, pass string
@@ -77,16 +77,50 @@ func (f *RemoteFetcher) CloseIdleConnections() {
 }
 
 func (f *RemoteFetcher) get(ctx context.Context, after time.Time) (*RemoteSnapshot, error) {
-	u := *f.base
-	u.Path = strings.TrimRight(u.Path, "/") + "/snapshot"
-	q := u.Query()
+	q := url.Values{}
 	if !after.IsZero() {
 		q.Set("after", after.Format(time.RFC3339Nano))
+	}
+	var env RemoteSnapshot
+	if err := f.do(ctx, "/snapshot", q, &env); err != nil {
+		return nil, err
+	}
+	if env.Snapshot == nil {
+		return nil, errors.New("daemon answered without a snapshot")
+	}
+	return &env, nil
+}
+
+// FetchPKICertificates returns the certificates of the daemon's Caddy PKI.
+func (f *RemoteFetcher) FetchPKICertificates(ctx context.Context) []CertificateInfo {
+	return f.certificates(ctx, "pki")
+}
+
+// DialTLSCertificates returns the certificates served on the hosts the daemon
+// monitors: the daemon picks the hosts, so hosts is ignored.
+func (f *RemoteFetcher) DialTLSCertificates(ctx context.Context, _ []string) []CertificateInfo {
+	return f.certificates(ctx, "tls")
+}
+
+func (f *RemoteFetcher) certificates(ctx context.Context, source string) []CertificateInfo {
+	var certs []CertificateInfo
+	if err := f.do(ctx, "/certificates", url.Values{"source": {source}}, &certs); err != nil {
+		return nil
+	}
+	return certs
+}
+
+func (f *RemoteFetcher) do(ctx context.Context, path string, params url.Values, out any) error {
+	u := *f.base
+	u.Path = strings.TrimRight(u.Path, "/") + path
+	q := u.Query()
+	for k, v := range params {
+		q[k] = v
 	}
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("User-Agent", f.userAgent)
 	if f.user != "" {
@@ -94,7 +128,7 @@ func (f *RemoteFetcher) get(ctx context.Context, after time.Time) (*RemoteSnapsh
 	}
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -104,17 +138,13 @@ func (f *RemoteFetcher) get(ctx context.Context, after time.Time) (*RemoteSnapsh
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusUnauthorized:
-		return nil, errors.New("the daemon rejected the credentials: check EMBER_REMOTE_AUTH or --remote-auth")
+		return errors.New("the daemon rejected the credentials: check EMBER_REMOTE_AUTH or --remote-auth")
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("daemon answered %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return fmt.Errorf("daemon answered %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
-	var env RemoteSnapshot
-	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
-		return nil, fmt.Errorf("decode daemon snapshot: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode daemon %s: %w", strings.TrimPrefix(path, "/"), err)
 	}
-	if env.Snapshot == nil {
-		return nil, errors.New("daemon answered without a snapshot")
-	}
-	return &env, nil
+	return nil
 }

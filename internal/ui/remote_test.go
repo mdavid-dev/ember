@@ -45,9 +45,8 @@ func TestRemote_RestartKeySkipsTheConfirmation(t *testing.T) {
 
 func TestRemote_UnavailableTabs(t *testing.T) {
 	for tb, want := range map[tab]string{
-		tabLogs:         "Logs are not available in a remote session.",
-		tabConfig:       "Caddy Config is not available in a remote session.",
-		tabCertificates: "Certificates are not available in a remote session.",
+		tabLogs:   "Logs are not available in a remote session.",
+		tabConfig: "Caddy Config is not available in a remote session.",
 	} {
 		app := remoteApp(t, "prod:9191")
 		app.switchTab(tb)
@@ -58,6 +57,14 @@ func TestRemote_UnavailableTabs(t *testing.T) {
 		assert.NotContains(t, out, "--log-listen")
 		assert.Nil(t, app.switchTabCmd(), "nothing to fetch from a remote session")
 	}
+}
+
+func TestRemote_CertificatesTabFetchesFromTheDaemon(t *testing.T) {
+	app := remoteApp(t, "prod:9191")
+	app.switchTab(tabCertificates)
+
+	assert.NotNil(t, app.switchTabCmd())
+	assert.NotContains(t, stripANSI(app.View()), "not available")
 }
 
 func TestRemote_UpstreamsDoNotFetchTheConfig(t *testing.T) {

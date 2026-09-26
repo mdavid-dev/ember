@@ -1,10 +1,7 @@
 package exporter
 
 import (
-	"fmt"
 	"net/http"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
@@ -27,14 +24,7 @@ func hasSnapshotAfter(slot *instanceSlot, after time.Time) bool {
 // SnapshotHandler serves /snapshot. With ?after= it holds the answer until a
 // newer snapshot is stored, for at most twice the instance's interval.
 func SnapshotHandler(holder *StateHolder, defaultInterval time.Duration, perInstance map[string]time.Duration) http.HandlerFunc {
-	var names []string
-	for name := range perInstance {
-		if name != "" {
-			names = append(names, name)
-		}
-	}
-	slices.Sort(names)
-
+	names := instanceNames(perInstance)
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		var after time.Time
@@ -47,17 +37,9 @@ func SnapshotHandler(holder *StateHolder, defaultInterval time.Duration, perInst
 			after = t
 		}
 
-		key := ""
-		if len(names) > 1 {
-			key = q.Get("instance")
-			if key == "" {
-				http.Error(w, "instance is required, one of: "+strings.Join(names, ", "), http.StatusBadRequest)
-				return
-			}
-			if _, ok := perInstance[key]; !ok {
-				http.Error(w, fmt.Sprintf("unknown instance %q", key), http.StatusNotFound)
-				return
-			}
+		key, ok := resolveInstance(w, r, names, perInstance)
+		if !ok {
+			return
 		}
 		interval := defaultInterval
 		if d, ok := perInstance[key]; ok {
