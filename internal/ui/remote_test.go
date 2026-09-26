@@ -5,13 +5,18 @@ import (
 	"time"
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
+	"github.com/alexandre-daubois/ember/internal/model"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 )
 
-func remoteApp(t *testing.T, remote string) *App {
+func remoteApp(t *testing.T, remote string, opts ...func(*Config)) *App {
 	t.Helper()
-	app := NewApp(noOpFetcher{}, Config{Interval: time.Second, Remote: remote, HasFrankenPHP: true})
+	cfg := Config{Interval: time.Second, Remote: remote, HasFrankenPHP: true}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	app := NewApp(noOpFetcher{}, cfg)
 	app.width, app.height = 140, 40
 	_, _ = app.Update(fetchMsg{snap: &fetcher.Snapshot{
 		FetchedAt:     time.Now(),
@@ -57,6 +62,32 @@ func TestRemote_UnavailableTabs(t *testing.T) {
 		assert.NotContains(t, out, "--log-listen")
 		assert.Nil(t, app.switchTabCmd(), "nothing to fetch from a remote session")
 	}
+}
+
+func TestRemote_LogsTabShowsTheDaemonLogs(t *testing.T) {
+	app := remoteApp(t, "prod:9191", func(c *Config) {
+		c.LogBuffer, c.RuntimeLogBuffer, c.RouteAggregator = model.NewLogBuffer(0), model.NewLogBuffer(0), model.NewRouteAggregator()
+	})
+	app.runtimeLogBuffer.Append(fetcher.LogEntry{Timestamp: time.Now(), Level: "info", Logger: "admin.api", Message: "remote-probe"})
+	app.switchTab(tabLogs)
+
+	out := stripANSI(app.View())
+
+	assert.NotContains(t, out, "not available")
+	assert.Contains(t, out, "remote-probe")
+}
+
+func TestRemote_LogsTabNamesTheRefusal(t *testing.T) {
+	app := remoteApp(t, "prod:9191", func(c *Config) {
+		c.LogsRefusal = "daemon answered 404 Not Found: logs are not available on a multi-instance daemon\a"
+	})
+	app.switchTab(tabLogs)
+
+	out := app.View()
+
+	assert.Contains(t, stripANSI(out), "Logs are not available in a remote session.")
+	assert.Contains(t, stripANSI(out), "logs are not available on a multi-instance daemon")
+	assert.NotContains(t, out, "\a", "the daemon's reason is neutralised")
 }
 
 func TestRemote_CertificatesTabFetchesFromTheDaemon(t *testing.T) {

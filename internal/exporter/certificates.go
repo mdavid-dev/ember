@@ -10,14 +10,12 @@ import (
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 )
 
-// CertSource reads the certificates of one Caddy instance.
 type CertSource interface {
 	FetchPKICertificates(ctx context.Context) []fetcher.CertificateInfo
 	DialTLSCertificates(ctx context.Context, hosts []string) []fetcher.CertificateInfo
 }
 
-// CertificatesHandler serves /certificates?source=pki|tls. The TLS source dials
-// the hosts of the daemon's own snapshot, never hosts named by the client.
+// CertificatesHandler dials the hosts of the daemon's own snapshot, never hosts named by the client.
 func CertificatesHandler(holder *StateHolder, perInstance map[string]time.Duration, sources map[string]CertSource) http.HandlerFunc {
 	names := instanceNames(perInstance)
 	return func(w http.ResponseWriter, r *http.Request) {

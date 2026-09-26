@@ -41,6 +41,7 @@ type config struct {
 	metricsAuth   string
 	recorder      *instrumentation.Recorder
 	certSources   map[string]exporter.CertSource
+	logSource     exporter.LogSource
 	logListen     string
 	configPath    string
 	configDefault string
@@ -104,7 +105,6 @@ Keybindings:
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			remoteOnCLI := cmd.Flags().Changed("remote")
 			if err := bindEnv(cmd); err != nil {
 				return err
 			}
@@ -112,10 +112,6 @@ Keybindings:
 				cfg.noColor = true
 			}
 			initLogger(&cfg)
-			if cfg.remote != "" && !remoteOnCLI && (cfg.daemon || cfg.jsonMode) {
-				cfg.logger.Warn("EMBER_REMOTE is ignored with --daemon and --json")
-				cfg.remote = ""
-			}
 			if cfg.remote != "" {
 				return prepareRemote(cmd, &cfg)
 			}
@@ -201,7 +197,7 @@ Keybindings:
 	f.StringVar(&cfg.exposeCA, "expose-client-ca", "", "CA that --expose clients must present a certificate from (mTLS)")
 	f.StringVar(&cfg.remote, "remote", "", "Run the TUI against an Ember daemon started with --serve-remote (e.g. https://prod:9191)")
 	f.StringVar(&cfg.remoteAuth, "remote-auth", "", "Basic auth for --remote (user:password)")
-	f.BoolVar(&cfg.serveRemote, "serve-remote", false, "Serve GET /snapshot for remote TUIs (requires --daemon and --metrics-auth or --expose-client-ca)")
+	f.BoolVar(&cfg.serveRemote, "serve-remote", false, "Serve remote TUIs from the daemon (requires --daemon and --metrics-auth or --expose-client-ca)")
 	f.StringVar(&cfg.logListen, "log-listen", "", "Receive logs from Caddy via TCP, e.g. ':9210' or '127.0.0.1:9210'. Required when Caddy is on a remote host; auto-bound on a local loopback port otherwise.")
 	f.BoolVar(&cfg.stdinLogs, "stdin-logs", false, "Read Caddy logs directly from stdin instead of registering a net_writer")
 	f.BoolVar(&cfg.stdinLogs, "from-stdin", false, "Read Caddy logs directly from stdin instead of registering a net_writer (alias for --stdin-logs)")

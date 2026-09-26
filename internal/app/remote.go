@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 
 const remoteHandshakeTimeout = 10 * time.Second
 
-// prepareRemote checks the options of a --remote session.
 func prepareRemote(cmd *cobra.Command, cfg *config) error {
 	for _, c := range []struct {
 		flag string
@@ -31,7 +29,7 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return fmt.Errorf("--remote must be an https:// URL, got %q", cfg.remote)
 	}
-	if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+	if u.Scheme == "http" && !fetcher.IsLocalAddr(cfg.remote) {
 		return fmt.Errorf("--remote must use https:// (http:// is only accepted for localhost), got %q", cfg.remote)
 	}
 	if cfg.remoteAuth != "" {
@@ -44,14 +42,6 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 	}
 	cfg.remoteURL = u
 	return nil
-}
-
-func isLoopbackHost(host string) bool {
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func runRemote(ctx context.Context, cfg *config, version string) error {

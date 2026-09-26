@@ -47,6 +47,7 @@ type Config struct {
 	RouteAggregator  *model.RouteAggregator
 	LogSource        string // path or description; empty when no source is known
 	Remote           string // daemon host:port in a remote session
+	LogsRefusal      string // why the daemon refused the logs of a remote session
 }
 
 type tab int
@@ -392,7 +393,10 @@ func (a *App) View() string {
 		}
 	}
 
-	if msg, ok := remoteUnavailable[a.activeTab]; ok && a.config.Remote != "" {
+	if msg, ok := remoteUnavailable[a.activeTab]; ok && a.config.Remote != "" && (a.activeTab != tabLogs || a.logBuffer == nil) {
+		if a.activeTab == tabLogs && a.config.LogsRefusal != "" {
+			msg += "\n " + sanitizeControl(a.config.LogsRefusal)
+		}
 		contentList = greyStyle.Render(" " + msg)
 	}
 

@@ -33,7 +33,7 @@ ember [flags]
 | `--serve-remote`   | bool | `false` | Serve remote TUIs from the daemon. See [Remote TUI](remote.md). |
 | `--remote`         | string | _(none)_ | Run the TUI against a `--serve-remote` daemon (e.g. `https://prod:9191`). See [Remote TUI](remote.md). |
 | `--remote-auth`    | string | _(none)_ | Basic auth for `--remote` (`user:password`) |
-| `--log-listen`     | string | _(auto)_ | Bind a TCP listener at this address (e.g. `:9210`) and ask Caddy to push its logs to it via two hot-registered sinks (access + runtime). Required when Caddy is on a remote host; auto-bound on a free loopback port otherwise. See [Logs](logs.md). |
+| `--log-listen`     | string | _(auto)_ | Bind a TCP listener at this address (e.g. `:9210`) and ask Caddy to push its logs to it via two hot-registered sinks (access + runtime). Required when Caddy is on a remote host; auto-bound on a free loopback port otherwise. A `--serve-remote` daemon uses it the same way while a remote TUI reads the logs. See [Logs](logs.md). |
 | `--stdin-logs`, `--from-stdin` | bool | `false` | Read Caddy logs directly from stdin instead of registering a net_writer via Caddy's Admin API. Ideal for Kubernetes / unidirectional environments. |
 | `--no-color`       | bool | `false` | Disable colors. Also enabled by the `NO_COLOR` env var (see [no-color.org](https://no-color.org/)). |
 | `--version`        | | | Print version and exit |

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -181,20 +182,28 @@ func TestValidate_ExposeCertRequiresDaemon(t *testing.T) {
 	assert.Contains(t, err.Error(), "--expose-cert requires --daemon")
 }
 
+type stubLogSource struct{}
+
+func (stubLogSource) Since(int64, int) ([]fetcher.LogEntry, int64, error) { return nil, 0, nil }
+
 func TestNewMetricsHandler_SnapshotRouteNeedsServeRemote(t *testing.T) {
 	for _, serveRemote := range []bool{false, true} {
-		cfg := &config{interval: time.Second, serveRemote: serveRemote,
+		cfg := &config{interval: time.Second, serveRemote: serveRemote, logSource: stubLogSource{},
 			certSources: map[string]exporter.CertSource{"": fetcher.NewHTTPFetcher("http://127.0.0.1:1", 0)}}
 		rec := httptest.NewRecorder()
 		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/snapshot", nil))
 		certs := httptest.NewRecorder()
 		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(certs, httptest.NewRequest(http.MethodGet, "/certificates?source=pki", nil))
+		logs := httptest.NewRecorder()
+		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(logs, httptest.NewRequest(http.MethodGet, "/logs", nil))
 		if serveRemote {
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, http.StatusOK, certs.Code)
+			assert.Equal(t, http.StatusOK, logs.Code)
 		} else {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 			assert.Equal(t, http.StatusNotFound, certs.Code)
+			assert.Equal(t, http.StatusNotFound, logs.Code)
 		}
 	}
 
@@ -242,6 +251,7 @@ func TestServeRemote_BasicAuthOverTLS(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/snapshot", "", ""))
 	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/snapshot", "wrong-user", "wrong-pass"))
 	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/certificates?source=pki", "", ""))
+	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/logs", "", ""))
 	refused.CloseIdleConnections()
 
 	client := tlsClient(pki.pool)
@@ -251,7 +261,7 @@ func TestServeRemote_BasicAuthOverTLS(t *testing.T) {
 	client.CloseIdleConnections()
 
 	require.Eventually(t, func() bool {
-		return strings.Count(logs.String(), `msg="remote request refused"`) == 3 &&
+		return strings.Count(logs.String(), `msg="remote request refused"`) == 4 &&
 			strings.Contains(logs.String(), "remote session opened")
 	}, 2*time.Second, 10*time.Millisecond)
 	out := logs.String()
@@ -276,6 +286,7 @@ func TestServeRemote_ClientCARequiresCertificate(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 	require.Error(t, err, "a client without certificate must fail the handshake")
+	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "TLS handshake error") }, 2*time.Second, 10*time.Millisecond)
 
 	cert, err := tls.LoadX509KeyPair(pki.clientCert, pki.clientKey)
 	require.NoError(t, err)
@@ -291,4 +302,122 @@ func TestCertSources_KeyedLikeTheHolder(t *testing.T) {
 	sources := certSources(multi)
 	assert.Contains(t, sources, "web1")
 	assert.Contains(t, sources, "web2")
+}
+
+func newTestRemoteLogs(t *testing.T, cfg *config, instances []*instance) *remoteLogs {
+	t.Helper()
+	cfg.logger = slog.New(slog.DiscardHandler)
+	l := newRemoteLogs(cfg, instances)
+	l.lease = 300 * time.Millisecond
+	t.Cleanup(l.Close)
+	return l
+}
+
+func TestRemoteLogs_LeaseInstallsThenRestoresCaddy(t *testing.T) {
+	api := newFakeCaddyLogAPI(t)
+	t.Cleanup(api.srv.Close)
+	api.addServer("srv0", "")
+	l := newTestRemoteLogs(t, &config{addrs: []addrSpec{{url: api.srv.URL}}},
+		[]*instance{{name: "test", fetcher: fetcher.NewHTTPFetcher(api.srv.URL, 0)}})
+	assert.Zero(t, api.putCount(), "nothing is installed before a TUI asks for the logs")
+
+	_, next, err := l.Since(-1, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 2, api.putCount())
+	assert.JSONEq(t, "{}", api.serverLogs("srv0"))
+
+	conn, err := net.Dial("tcp", api.registeredAddr(t))
+	require.NoError(t, err)
+	_, err = conn.Write([]byte(`{"level":"info","logger":"http.log.access.log0","msg":"handled"}` + "\n"))
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+	require.Eventually(t, func() bool { return l.buf.Len() == 1 }, 2*time.Second, 10*time.Millisecond)
+	entries, next, err := l.Since(next, 0)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "handled", entries[0].Message)
+	joined, joinedNext, err := l.Since(-1, 0)
+	require.NoError(t, err)
+	assert.Empty(t, joined, "a TUI joining a running session starts from now")
+	assert.Equal(t, next, joinedNext)
+
+	for range 10 {
+		time.Sleep(l.lease / 6)
+		_, _, err = l.Since(next, 0)
+		require.NoError(t, err)
+	}
+	assert.False(t, api.unregistered.Load(), "every request extends the lease")
+
+	require.Eventually(t, func() bool {
+		return api.unregistered.Load() && api.serverDeleteCount("srv0") == 1
+	}, 2*time.Second, 10*time.Millisecond, "Caddy is restored once the lease expires")
+	assert.Empty(t, api.serverLogs("srv0"))
+	assert.Zero(t, l.buf.Len(), "the lines do not outlive the session")
+
+	_, _, err = l.Since(next, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 4, api.putCount(), "the next request opens a new session")
+}
+
+func TestRemoteLogs_Unavailable(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       *config
+		instances []*instance
+		want      string
+	}{
+		{"multi-instance", &config{addrs: []addrSpec{{url: "http://localhost:2019"}, {url: "http://localhost:2020"}}},
+			[]*instance{{name: "web1"}, {name: "web2"}}, "multi-instance daemon"},
+		{"remote Caddy without --log-listen", &config{addrs: []addrSpec{{url: "http://prod.example.com:2019"}}},
+			[]*instance{{name: "prod"}}, "--log-listen"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := newTestRemoteLogs(t, tt.cfg, tt.instances).Since(0, 0)
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+func TestRunDaemon_ServesLogsAndRestoresCaddyOnShutdown(t *testing.T) {
+	api := newFakeCaddyLogAPI(t)
+	t.Cleanup(api.srv.Close)
+	api.addServer("srv0", "")
+	cfg := &config{
+		addrs:       []addrSpec{{url: api.srv.URL}},
+		interval:    time.Second,
+		expose:      freePort(t),
+		daemon:      true,
+		serveRemote: true,
+		metricsAuth: "remote:s3cret",
+		logger:      slog.New(slog.DiscardHandler),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	instances, err := newInstances(ctx, cfg, "v-test")
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- runDaemon(ctx, instances, cfg, nil) }()
+
+	req, err := http.NewRequest(http.MethodGet, "http://"+cfg.expose+"/logs", nil)
+	require.NoError(t, err)
+	req.SetBasicAuth("remote", "s3cret")
+	require.Eventually(t, func() bool {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return false
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}, 5*time.Second, 50*time.Millisecond)
+	assert.Equal(t, 2, api.putCount())
+
+	cancel()
+	require.NoError(t, <-done)
+
+	assert.True(t, api.unregistered.Load(), "an orderly stop removes the sinks")
+	assert.Equal(t, 1, api.serverDeleteCount("srv0"))
+	_, _, err = cfg.logSource.Since(0, 0)
+	require.ErrorContains(t, err, "stopping")
+	assert.Equal(t, 2, api.putCount(), "nothing is installed after the stop")
 }
