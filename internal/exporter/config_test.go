@@ -21,7 +21,7 @@ func getConfig(h http.Handler, query string) *httptest.ResponseRecorder {
 }
 
 func TestConfigHandler_RelaysCaddysBytes(t *testing.T) {
-	h := ConfigHandler(singleIntervals, map[string]InstanceSource{"": &fakeCertSource{config: caddyConfig}})
+	h := ConfigHandler(singleIntervals, map[string]InstanceSource{"": &fakeInstanceSource{config: caddyConfig}})
 
 	rec := getConfig(h, "")
 
@@ -31,7 +31,7 @@ func TestConfigHandler_RelaysCaddysBytes(t *testing.T) {
 }
 
 func TestConfigHandler_CaddyDown(t *testing.T) {
-	h := ConfigHandler(singleIntervals, map[string]InstanceSource{"": &fakeCertSource{configErr: errors.New("fetch config: connection refused")}})
+	h := ConfigHandler(singleIntervals, map[string]InstanceSource{"": &fakeInstanceSource{configErr: errors.New("fetch config: connection refused")}})
 
 	rec := getConfig(h, "")
 
@@ -41,7 +41,7 @@ func TestConfigHandler_CaddyDown(t *testing.T) {
 
 func TestConfigHandler_MultiInstance(t *testing.T) {
 	intervals := map[string]time.Duration{"web1": time.Second, "web2": time.Second}
-	h := ConfigHandler(intervals, map[string]InstanceSource{"web1": &fakeCertSource{config: `"web1"`}, "web2": &fakeCertSource{config: `"web2"`}})
+	h := ConfigHandler(intervals, map[string]InstanceSource{"web1": &fakeInstanceSource{config: `"web1"`}, "web2": &fakeInstanceSource{config: `"web2"`}})
 
 	assert.Equal(t, http.StatusBadRequest, getConfig(h, "").Code)
 

@@ -28,3 +28,4 @@ services:
       - --metrics-auth=demo:demo-password
       - --expose-cert=/certs/server.pem
       - --expose-key=/certs/server-key.pem
+      - --log-listen=ember:9210
