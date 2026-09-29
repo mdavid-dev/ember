@@ -13,23 +13,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fakeCertSource struct {
+type fakeInstanceSource struct {
 	ca        string
 	dialed    []string
 	config    string
 	configErr error
 }
 
-func (f *fakeCertSource) FetchPKICertificates(context.Context) []fetcher.CertificateInfo {
+func (f *fakeInstanceSource) FetchPKICertificates(context.Context) []fetcher.CertificateInfo {
 	return []fetcher.CertificateInfo{{Subject: f.ca, Source: "pki"}}
 }
 
-func (f *fakeCertSource) DialTLSCertificates(_ context.Context, hosts []string) []fetcher.CertificateInfo {
+func (f *fakeInstanceSource) DialTLSCertificates(_ context.Context, hosts []string) []fetcher.CertificateInfo {
 	f.dialed = hosts
 	return []fetcher.CertificateInfo{{Subject: hosts[0], Source: "tls"}}
 }
 
-func (f *fakeCertSource) FetchConfig(context.Context) (json.RawMessage, error) {
+func (f *fakeInstanceSource) FetchConfig(context.Context) (json.RawMessage, error) {
 	return json.RawMessage(f.config), f.configErr
 }
 
@@ -49,7 +49,7 @@ func TestCertificatesHandler_Sources(t *testing.T) {
 	storeSnapshot(holder, "", &fetcher.Snapshot{FetchedAt: time.Now(), Metrics: fetcher.MetricsSnapshot{
 		Hosts: map[string]*fetcher.HostMetrics{"shop.test": {Host: "shop.test"}, "api.test": {Host: "api.test"}},
 	}})
-	src := &fakeCertSource{}
+	src := &fakeInstanceSource{}
 	h := CertificatesHandler(holder, singleIntervals, map[string]InstanceSource{"": src})
 
 	rec, certs := getCertificates(t, h, "source=pki")
@@ -69,7 +69,7 @@ func TestCertificatesHandler_MultiInstance(t *testing.T) {
 	holder := &StateHolder{}
 	holder.SetMulti(true)
 	intervals := map[string]time.Duration{"web1": time.Second, "web2": time.Second}
-	h := CertificatesHandler(holder, intervals, map[string]InstanceSource{"web1": &fakeCertSource{ca: "web1 CA"}, "web2": &fakeCertSource{ca: "web2 CA"}})
+	h := CertificatesHandler(holder, intervals, map[string]InstanceSource{"web1": &fakeInstanceSource{ca: "web1 CA"}, "web2": &fakeInstanceSource{ca: "web2 CA"}})
 
 	rec, _ := getCertificates(t, h, "source=pki")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)

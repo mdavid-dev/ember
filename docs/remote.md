@@ -19,7 +19,7 @@ Remote sessions, refused requests, and the installation and removal of the log s
 EMBER_REMOTE_AUTH=ops:secret ember --remote https://prod:9191 --ca-cert ca.pem
 ```
 
-`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. On a multi-instance daemon, add `?instance=NAME` to the URL. Worker restart is not available remotely; the Caddy Config, Certificates and Logs tabs show what the daemon sees. The daemon relays Caddy's configuration as its admin API returns it, without changing it.
+`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. On a multi-instance daemon, add `?instance=NAME` to the URL. Worker restart is not available remotely; the Caddy Config, Certificates and Logs tabs show what the daemon sees.
 
 ## Logs
 
@@ -35,8 +35,8 @@ The daemon listens for Caddy on a free loopback port when Caddy's admin API is o
 
 The credentials give read access to everything the TUI shows, including the URIs FrankenPHP threads are serving, which may carry query strings. They also give access to what Ember keeps of Caddy's log lines: client IP, host, method, full URI with its query string, status, and the messages of the runtime logs. A line that is not valid JSON is passed on as is.
 
-The credentials also give access to Caddy's whole configuration, as `ember` run over SSH on the server shows it. It may hold secrets: DNS provider tokens for ACME, `basic_auth` password hashes, headers added to requests sent to upstreams.
+The credentials also give access to Caddy's whole configuration, which may hold secrets: DNS provider tokens for ACME, `basic_auth` password hashes, headers added to requests sent to upstreams.
 
 ## Try it
 
-In `local/remote/`: `make certs && make up`, then `make start`.
+In `local/remote/`: `make certs && make up`, then `make start`, and `make traffic` in another terminal.

@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// ConfigHandler answers 502 when Caddy fails: the daemon is only the gateway to its admin API.
 func ConfigHandler(perInstance map[string]time.Duration, sources map[string]InstanceSource) http.HandlerFunc {
 	names := instanceNames(perInstance)
 	return func(w http.ResponseWriter, r *http.Request) {
