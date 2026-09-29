@@ -189,21 +189,25 @@ func (stubLogSource) Since(int64, int) ([]fetcher.LogEntry, int64, error) { retu
 func TestNewMetricsHandler_SnapshotRouteNeedsServeRemote(t *testing.T) {
 	for _, serveRemote := range []bool{false, true} {
 		cfg := &config{interval: time.Second, serveRemote: serveRemote, logSource: stubLogSource{},
-			certSources: map[string]exporter.CertSource{"": fetcher.NewHTTPFetcher("http://127.0.0.1:1", 0)}}
+			instSources: map[string]exporter.InstanceSource{"": fetcher.NewHTTPFetcher("http://127.0.0.1:1", 0)}}
 		rec := httptest.NewRecorder()
 		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/snapshot", nil))
 		certs := httptest.NewRecorder()
 		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(certs, httptest.NewRequest(http.MethodGet, "/certificates?source=pki", nil))
 		logs := httptest.NewRecorder()
 		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(logs, httptest.NewRequest(http.MethodGet, "/logs", nil))
+		caddyConfig := httptest.NewRecorder()
+		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(caddyConfig, httptest.NewRequest(http.MethodGet, "/config", nil))
 		if serveRemote {
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, http.StatusOK, certs.Code)
 			assert.Equal(t, http.StatusOK, logs.Code)
+			assert.Equal(t, http.StatusBadGateway, caddyConfig.Code, "no Caddy behind the daemon")
 		} else {
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 			assert.Equal(t, http.StatusNotFound, certs.Code)
 			assert.Equal(t, http.StatusNotFound, logs.Code)
+			assert.Equal(t, http.StatusNotFound, caddyConfig.Code)
 		}
 	}
 
@@ -252,6 +256,7 @@ func TestServeRemote_BasicAuthOverTLS(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/snapshot", "wrong-user", "wrong-pass"))
 	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/certificates?source=pki", "", ""))
 	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/logs", "", ""))
+	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/config", "", ""))
 	refused.CloseIdleConnections()
 
 	client := tlsClient(pki.pool)
@@ -261,7 +266,7 @@ func TestServeRemote_BasicAuthOverTLS(t *testing.T) {
 	client.CloseIdleConnections()
 
 	require.Eventually(t, func() bool {
-		return strings.Count(logs.String(), `msg="remote request refused"`) == 4 &&
+		return strings.Count(logs.String(), `msg="remote request refused"`) == 5 &&
 			strings.Contains(logs.String(), "remote session opened")
 	}, 2*time.Second, 10*time.Millisecond)
 	out := logs.String()
@@ -296,10 +301,10 @@ func TestServeRemote_ClientCARequiresCertificate(t *testing.T) {
 
 func TestCertSources_KeyedLikeTheHolder(t *testing.T) {
 	single := []*instance{{name: "web"}}
-	assert.Contains(t, certSources(single), "")
+	assert.Contains(t, instanceSources(single), "")
 
 	multi := []*instance{{name: "web1"}, {name: "web2"}}
-	sources := certSources(multi)
+	sources := instanceSources(multi)
 	assert.Contains(t, sources, "web1")
 	assert.Contains(t, sources, "web2")
 }

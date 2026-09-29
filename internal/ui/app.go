@@ -53,8 +53,7 @@ type Config struct {
 type tab int
 
 var remoteUnavailable = map[tab]string{
-	tabLogs:   "Logs are not available in a remote session.",
-	tabConfig: "Caddy Config is not available in a remote session.",
+	tabLogs: "Logs are not available in a remote session.",
 }
 
 const remoteRestartUnavailable = "Worker restart is not available in a remote session."

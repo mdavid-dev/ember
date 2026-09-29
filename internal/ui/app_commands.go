@@ -31,9 +31,6 @@ func (a *App) doRestart() tea.Cmd {
 }
 
 func (a *App) doFetchConfig() tea.Cmd {
-	if a.config.Remote != "" {
-		return nil
-	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), globalFetchTimeout)
 		defer cancel()
@@ -74,9 +71,6 @@ func (a *App) doFetchCertificates() tea.Cmd {
 }
 
 func (a *App) doFetchRPConfig() tea.Cmd {
-	if a.config.Remote != "" {
-		return nil
-	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), globalFetchTimeout)
 		defer cancel()
