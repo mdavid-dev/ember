@@ -168,12 +168,8 @@ func TestRemoteFetcher_IsReadOnly(t *testing.T) {
 	var f any = &RemoteFetcher{}
 
 	_, restarts := f.(interface{ RestartWorkers(context.Context) error })
-	_, configs := f.(interface {
-		FetchConfig(context.Context) (json.RawMessage, error)
-	})
 
 	assert.False(t, restarts)
-	assert.False(t, configs)
 }
 
 func TestRemoteFetcher_ReusesOneConnection(t *testing.T) {
@@ -242,6 +238,24 @@ func TestRemoteFetcher_CertificatesOnErrorAreEmpty(t *testing.T) {
 	t.Cleanup(f.CloseIdleConnections)
 
 	assert.Empty(t, f.FetchPKICertificates(context.Background()))
+}
+
+func TestRemoteFetcher_ConfigComesFromTheDaemon(t *testing.T) {
+	const caddyConfig = `{"apps":{"http":{"servers":{"srv0":{"listen":[":8080"]}}}}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/config", r.URL.Path)
+		_, _ = io.WriteString(w, caddyConfig+"\n")
+	}))
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	f := NewRemoteFetcher(u, "", nil, "test")
+	t.Cleanup(f.CloseIdleConnections)
+
+	raw, err := f.FetchConfig(context.Background())
+
+	require.NoError(t, err)
+	assert.JSONEq(t, caddyConfig, string(raw))
 }
 
 func TestRemoteFetcher_FetchLogsSendsTheCursor(t *testing.T) {

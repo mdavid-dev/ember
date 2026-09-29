@@ -14,8 +14,10 @@ import (
 )
 
 type fakeCertSource struct {
-	ca     string
-	dialed []string
+	ca        string
+	dialed    []string
+	config    string
+	configErr error
 }
 
 func (f *fakeCertSource) FetchPKICertificates(context.Context) []fetcher.CertificateInfo {
@@ -25,6 +27,10 @@ func (f *fakeCertSource) FetchPKICertificates(context.Context) []fetcher.Certifi
 func (f *fakeCertSource) DialTLSCertificates(_ context.Context, hosts []string) []fetcher.CertificateInfo {
 	f.dialed = hosts
 	return []fetcher.CertificateInfo{{Subject: hosts[0], Source: "tls"}}
+}
+
+func (f *fakeCertSource) FetchConfig(context.Context) (json.RawMessage, error) {
+	return json.RawMessage(f.config), f.configErr
 }
 
 func getCertificates(t *testing.T, h http.Handler, query string) (*httptest.ResponseRecorder, []fetcher.CertificateInfo) {
@@ -44,7 +50,7 @@ func TestCertificatesHandler_Sources(t *testing.T) {
 		Hosts: map[string]*fetcher.HostMetrics{"shop.test": {Host: "shop.test"}, "api.test": {Host: "api.test"}},
 	}})
 	src := &fakeCertSource{}
-	h := CertificatesHandler(holder, singleIntervals, map[string]CertSource{"": src})
+	h := CertificatesHandler(holder, singleIntervals, map[string]InstanceSource{"": src})
 
 	rec, certs := getCertificates(t, h, "source=pki")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -63,7 +69,7 @@ func TestCertificatesHandler_MultiInstance(t *testing.T) {
 	holder := &StateHolder{}
 	holder.SetMulti(true)
 	intervals := map[string]time.Duration{"web1": time.Second, "web2": time.Second}
-	h := CertificatesHandler(holder, intervals, map[string]CertSource{"web1": &fakeCertSource{ca: "web1 CA"}, "web2": &fakeCertSource{ca: "web2 CA"}})
+	h := CertificatesHandler(holder, intervals, map[string]InstanceSource{"web1": &fakeCertSource{ca: "web1 CA"}, "web2": &fakeCertSource{ca: "web2 CA"}})
 
 	rec, _ := getCertificates(t, h, "source=pki")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)

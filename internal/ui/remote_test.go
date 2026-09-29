@@ -50,8 +50,7 @@ func TestRemote_RestartKeySkipsTheConfirmation(t *testing.T) {
 
 func TestRemote_UnavailableTabs(t *testing.T) {
 	for tb, want := range map[tab]string{
-		tabLogs:   "Logs are not available in a remote session.",
-		tabConfig: "Caddy Config is not available in a remote session.",
+		tabLogs: "Logs are not available in a remote session.",
 	} {
 		app := remoteApp(t, "prod:9191")
 		app.switchTab(tb)
@@ -90,15 +89,17 @@ func TestRemote_LogsTabNamesTheRefusal(t *testing.T) {
 	assert.NotContains(t, out, "\a", "the daemon's reason is neutralised")
 }
 
-func TestRemote_CertificatesTabFetchesFromTheDaemon(t *testing.T) {
-	app := remoteApp(t, "prod:9191")
-	app.switchTab(tabCertificates)
+func TestRemote_TabsFetchFromTheDaemon(t *testing.T) {
+	for _, tb := range []tab{tabCertificates, tabConfig} {
+		app := remoteApp(t, "prod:9191")
+		app.switchTab(tb)
 
-	assert.NotNil(t, app.switchTabCmd())
-	assert.NotContains(t, stripANSI(app.View()), "not available")
+		assert.NotNil(t, app.switchTabCmd())
+		assert.NotContains(t, stripANSI(app.View()), "not available")
+	}
 }
 
-func TestRemote_UpstreamsDoNotFetchTheConfig(t *testing.T) {
+func TestRemote_UpstreamsFetchTheConfig(t *testing.T) {
 	app := remoteApp(t, "prod:9191")
 
 	_, cmd := app.Update(fetchMsg{snap: &fetcher.Snapshot{
@@ -109,6 +110,6 @@ func TestRemote_UpstreamsDoNotFetchTheConfig(t *testing.T) {
 		},
 	}})
 
-	assert.Nil(t, cmd, "a remote session cannot read the upstream config")
+	assert.NotNil(t, cmd, "the upstream config comes from the daemon")
 	assert.Empty(t, app.status)
 }

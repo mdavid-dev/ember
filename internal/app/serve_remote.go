@@ -47,8 +47,8 @@ func configureExposeServer(srv *http.Server, cfg *config) error {
 	return nil
 }
 
-func certSources(instances []*instance) map[string]exporter.CertSource {
-	sources := make(map[string]exporter.CertSource, len(instances))
+func instanceSources(instances []*instance) map[string]exporter.InstanceSource {
+	sources := make(map[string]exporter.InstanceSource, len(instances))
 	for _, inst := range instances {
 		key := ""
 		if isMulti(instances) {
@@ -68,7 +68,7 @@ func listenMetrics(srv *http.Server) error {
 
 func traceRemote(next http.Handler, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/snapshot" && r.URL.Path != "/certificates" && r.URL.Path != "/logs" {
+		if r.URL.Path != "/snapshot" && r.URL.Path != "/certificates" && r.URL.Path != "/logs" && r.URL.Path != "/config" {
 			next.ServeHTTP(w, r)
 			return
 		}

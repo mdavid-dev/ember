@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"net/http"
 	"slices"
@@ -10,13 +11,14 @@ import (
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 )
 
-type CertSource interface {
+type InstanceSource interface {
 	FetchPKICertificates(ctx context.Context) []fetcher.CertificateInfo
 	DialTLSCertificates(ctx context.Context, hosts []string) []fetcher.CertificateInfo
+	FetchConfig(ctx context.Context) (json.RawMessage, error)
 }
 
 // CertificatesHandler dials the hosts of the daemon's own snapshot, never hosts named by the client.
-func CertificatesHandler(holder *StateHolder, perInstance map[string]time.Duration, sources map[string]CertSource) http.HandlerFunc {
+func CertificatesHandler(holder *StateHolder, perInstance map[string]time.Duration, sources map[string]InstanceSource) http.HandlerFunc {
 	names := instanceNames(perInstance)
 	return func(w http.ResponseWriter, r *http.Request) {
 		key, ok := resolveInstance(w, r, names, perInstance)

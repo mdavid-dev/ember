@@ -129,6 +129,14 @@ func (f *RemoteFetcher) FetchLogs(ctx context.Context, after int64) (*RemoteLogs
 	return &page, nil
 }
 
+func (f *RemoteFetcher) FetchConfig(ctx context.Context) (json.RawMessage, error) {
+	var raw json.RawMessage
+	if err := f.do(ctx, "/config", nil, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
 func (f *RemoteFetcher) do(ctx context.Context, path string, params url.Values, out any) error {
 	u := *f.base
 	u.Path = strings.TrimRight(u.Path, "/") + path
