@@ -40,7 +40,7 @@ type config struct {
 	insecure      bool
 	metricsAuth   string
 	recorder      *instrumentation.Recorder
-	certSources   map[string]exporter.CertSource
+	instSources   map[string]exporter.InstanceSource
 	logSource     exporter.LogSource
 	logListen     string
 	configPath    string

@@ -462,7 +462,7 @@ ember -f .ember.staging.toml config use staging
 | `/` | Enter filter / search mode | Any tab |
 | `e` / `E` | Expand / collapse all nodes | Config tab |
 | `n` / `N` | Jump to next / previous search match | Config tab |
-| `r` | Refresh config / restart workers (not in a remote session) | Config tab / FrankenPHP tab |
+| `r` | Refresh config / restart workers (no restart in a remote session) | Config tab / FrankenPHP tab |
 | `g` | Toggle full-screen graphs | Any view |
 | `?` | Toggle help overlay | Any view |
 | `q` | Quit | Any view |
