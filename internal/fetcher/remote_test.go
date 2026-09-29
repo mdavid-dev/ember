@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeDaemon answers /snapshot with the envelopes queued in replies, one per
-// request, and records each request's query.
 type fakeDaemon struct {
 	mu      sync.Mutex
 	replies []RemoteSnapshot
@@ -244,4 +242,55 @@ func TestRemoteFetcher_CertificatesOnErrorAreEmpty(t *testing.T) {
 	t.Cleanup(f.CloseIdleConnections)
 
 	assert.Empty(t, f.FetchPKICertificates(context.Background()))
+}
+
+func TestRemoteFetcher_FetchLogsSendsTheCursor(t *testing.T) {
+	var afters []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/logs", r.URL.Path)
+		afters = append(afters, r.URL.Query().Get("after"))
+		_ = json.NewEncoder(w).Encode(RemoteLogs{Next: 7, Entries: []LogEntry{{Message: "handled"}}})
+	}))
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	f := NewRemoteFetcher(u, "", nil, "test")
+	t.Cleanup(f.CloseIdleConnections)
+
+	page, err := f.FetchLogs(context.Background(), -1)
+	require.NoError(t, err)
+	_, err = f.FetchLogs(context.Background(), page.Next)
+	require.NoError(t, err)
+
+	require.Len(t, page.Entries, 1)
+	assert.Equal(t, "handled", page.Entries[0].Message)
+	assert.Equal(t, []string{"-1", "7"}, afters)
+}
+
+func TestRemoteFetcher_OnlyA4xxIsARefusal(t *testing.T) {
+	for status, refused := range map[int]bool{
+		http.StatusNotFound:           true,
+		http.StatusUnauthorized:       true,
+		http.StatusServiceUnavailable: false,
+	} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			}))
+			t.Cleanup(srv.Close)
+			u, err := url.Parse(srv.URL)
+			require.NoError(t, err)
+			f := NewRemoteFetcher(u, "", nil, "test")
+			t.Cleanup(f.CloseIdleConnections)
+
+			_, err = f.FetchLogs(context.Background(), -1)
+
+			require.Error(t, err)
+			if refused {
+				assert.ErrorAs(t, err, new(RefusedError))
+			} else {
+				assert.NotErrorAs(t, err, new(RefusedError))
+			}
+		})
+	}
 }

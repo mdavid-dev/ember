@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,12 +10,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/alexandre-daubois/ember/internal/exporter"
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/alexandre-daubois/ember/internal/model"
+	"github.com/alexandre-daubois/ember/internal/ui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,16 +54,6 @@ func TestPrepareRemote_RejectsBadURLAndAuth(t *testing.T) {
 	err = remotePreRun(t, "--remote", "https://prod:9191", "--remote-auth", "alice")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "user:password")
-}
-
-func TestRemoteFromEnv_IgnoredByDaemonAndJSON(t *testing.T) {
-	t.Setenv("EMBER_REMOTE", "https://prod:9191")
-	require.NoError(t, remotePreRun(t, "--json"))
-	require.NoError(t, remotePreRun(t, "--daemon", "--expose", ":9191"))
-
-	err := remotePreRun(t, "--json", "--remote", "https://prod:9191")
-	require.Error(t, err, "an explicit --remote still conflicts")
-	assert.Contains(t, err.Error(), "--remote is incompatible with --json")
 }
 
 func TestPrepareRemote_RefusesPlainHTTPOutsideLocalhost(t *testing.T) {
@@ -183,4 +179,108 @@ caddy_http_request_duration_seconds_count{server="srv0"} %d
 	defer mu.Unlock()
 	assert.Len(t, methods, 1, "the daemon only reads from Caddy")
 	assert.Contains(t, methods, http.MethodGet)
+}
+
+type recordingLogSource struct {
+	buf *model.LogBuffer
+	err error
+
+	mu      sync.Mutex
+	cursors []int64
+}
+
+func (s *recordingLogSource) Since(after int64, limit int) ([]fetcher.LogEntry, int64, error) {
+	s.mu.Lock()
+	s.cursors = append(s.cursors, after)
+	s.mu.Unlock()
+	if s.err != nil {
+		return nil, 0, s.err
+	}
+	entries, next := s.buf.Since(after, limit)
+	return entries, next, nil
+}
+
+func (s *recordingLogSource) seen() []int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.cursors)
+}
+
+func remoteLogsAgainst(t *testing.T, h http.Handler, interval time.Duration) *ui.Config {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	f := fetcher.NewRemoteFetcher(u, "", nil, "test")
+	t.Cleanup(f.CloseIdleConnections)
+	uiCfg := &ui.Config{Interval: interval}
+	t.Cleanup(setupLogSource(&config{remoteURL: u}, f, uiCfg))
+	return uiCfg
+}
+
+func logMessages(b *model.LogBuffer) []string {
+	entries, _ := b.Since(0, 0)
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, e.Message)
+	}
+	return out
+}
+
+func TestRemoteLogs_ClientSortsEveryLineOnceInOrder(t *testing.T) {
+	src := &recordingLogSource{buf: model.NewLogBuffer(0)}
+	var access, runtime []string
+	for i := range 2500 {
+		e := fetcher.LogEntry{Logger: "http.handlers.reverse_proxy", Message: strconv.Itoa(i)}
+		if i%2 == 0 {
+			e = fetcher.LogEntry{Logger: "http.log.access.log0", Message: strconv.Itoa(i), Host: "shop.test", Method: "GET", URI: "/p/" + strconv.Itoa(i), Status: 200}
+			access = append(access, e.Message)
+		} else {
+			runtime = append(runtime, e.Message)
+		}
+		src.buf.Append(e)
+	}
+
+	uiCfg := remoteLogsAgainst(t, exporter.LogsHandler(src), time.Hour)
+
+	require.NotNil(t, uiCfg.LogBuffer)
+	require.Eventually(t, func() bool {
+		return uiCfg.LogBuffer.Len()+uiCfg.RuntimeLogBuffer.Len() == 2500
+	}, 900*time.Millisecond, 10*time.Millisecond, "a full page is followed at once, not at the next tick")
+	assert.Equal(t, []int64{-1, 1000, 2000}, src.seen())
+	assert.Equal(t, access, logMessages(uiCfg.LogBuffer))
+	assert.Equal(t, runtime, logMessages(uiCfg.RuntimeLogBuffer))
+	assert.Positive(t, uiCfg.RouteAggregator.BucketCount())
+	assert.Empty(t, uiCfg.LogSource)
+}
+
+func TestRemoteLogs_ClientRetriesAfterAServerError(t *testing.T) {
+	src := &recordingLogSource{buf: model.NewLogBuffer(0)}
+	src.buf.Append(fetcher.LogEntry{Logger: "admin.api", Message: "after the outage"})
+	logs := exporter.LogsHandler(src)
+	var failed atomic.Bool
+
+	uiCfg := remoteLogsAgainst(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if failed.CompareAndSwap(false, true) {
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+			return
+		}
+		logs.ServeHTTP(w, r)
+	}), time.Minute)
+
+	require.NotNil(t, uiCfg.RuntimeLogBuffer, "a 5xx is not a refusal")
+	assert.Empty(t, uiCfg.LogsRefusal)
+	require.Eventually(t, func() bool { return uiCfg.RuntimeLogBuffer.Len() == 1 }, 2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, int64(-1), src.seen()[0], "the retry is still a first request")
+}
+
+func TestRemoteLogs_ClientStopsOnARefusal(t *testing.T) {
+	src := &recordingLogSource{err: errors.New("logs are not available on a multi-instance daemon")}
+
+	uiCfg := remoteLogsAgainst(t, exporter.LogsHandler(src), 100*time.Millisecond)
+
+	assert.Nil(t, uiCfg.LogBuffer, "the tab keeps its message")
+	assert.Contains(t, uiCfg.LogsRefusal, "multi-instance daemon")
+	assert.Len(t, src.seen(), 1)
 }

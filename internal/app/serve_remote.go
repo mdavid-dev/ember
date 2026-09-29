@@ -2,34 +2,28 @@ package app
 
 import (
 	"crypto/tls"
-	"crypto/x509"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
+	"sync"
+	"time"
 
 	"github.com/alexandre-daubois/ember/internal/exporter"
+	"github.com/alexandre-daubois/ember/internal/fetcher"
+	"github.com/alexandre-daubois/ember/internal/model"
 )
 
 func exposeTLSConfig(cfg *config) (*tls.Config, error) {
 	if cfg.exposeCert == "" {
 		return nil, nil
 	}
-	cert, err := tls.LoadX509KeyPair(cfg.exposeCert, cfg.exposeKey)
+	tc, err := fetcher.BuildTLSConfig(fetcher.TLSOptions{CACert: cfg.exposeCA, ClientCert: cfg.exposeCert, ClientKey: cfg.exposeKey})
 	if err != nil {
-		return nil, fmt.Errorf("load --expose-cert/--expose-key: %w", err)
+		return nil, fmt.Errorf("--expose TLS: %w", err)
 	}
-	tc := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}
-	if cfg.exposeCA != "" {
-		data, err := os.ReadFile(cfg.exposeCA)
-		if err != nil {
-			return nil, fmt.Errorf("read --expose-client-ca: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(data) {
-			return nil, fmt.Errorf("invalid CA cert in %s", cfg.exposeCA)
-		}
-		tc.ClientCAs = pool
+	if tc.RootCAs != nil {
+		tc.ClientCAs, tc.RootCAs = tc.RootCAs, nil
 		tc.ClientAuth = tls.RequireAndVerifyClientCert
 	}
 	return tc, nil
@@ -53,7 +47,6 @@ func configureExposeServer(srv *http.Server, cfg *config) error {
 	return nil
 }
 
-// certSources keys each fetcher like the state holder: "" on a single instance.
 func certSources(instances []*instance) map[string]exporter.CertSource {
 	sources := make(map[string]exporter.CertSource, len(instances))
 	for _, inst := range instances {
@@ -73,11 +66,9 @@ func listenMetrics(srv *http.Server) error {
 	return srv.ListenAndServe()
 }
 
-// traceRemote logs a TUI's first snapshot request, the only one without
-// ?after=, and every refused remote request.
 func traceRemote(next http.Handler, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/snapshot" && r.URL.Path != "/certificates" {
+		if r.URL.Path != "/snapshot" && r.URL.Path != "/certificates" && r.URL.Path != "/logs" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -104,4 +95,90 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+const remoteLogsLease = 30 * time.Second
+
+// remoteLogs receives Caddy's logs only while a remote TUI polls /logs, as a local TUI does for its session.
+type remoteLogs struct {
+	hf    *fetcher.HTTPFetcher
+	addr  string
+	lease time.Duration
+	log   *slog.Logger
+
+	mu          sync.Mutex
+	unavailable error
+	buf         *model.LogBuffer
+	stop        func()
+	last        time.Time
+}
+
+func newRemoteLogs(cfg *config, instances []*instance) *remoteLogs {
+	l := &remoteLogs{lease: remoteLogsLease, log: cfg.logger}
+	addr, ok := logListenAddr(cfg)
+	switch {
+	case len(instances) != 1:
+		l.unavailable = errors.New("logs are not available on a multi-instance daemon")
+	case !ok:
+		l.unavailable = errors.New("logs are not available: Caddy is on another host and the daemon has no --log-listen")
+	default:
+		l.hf, l.addr, l.buf = instances[0].fetcher, addr, model.NewLogBuffer(0)
+	}
+	return l
+}
+
+// Since gives a first request (after < 0) the session from its start if it opens it, from now otherwise.
+func (l *remoteLogs) Since(after int64, limit int) ([]fetcher.LogEntry, int64, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.unavailable != nil {
+		return nil, 0, l.unavailable
+	}
+	if l.stop == nil {
+		addr, stop, ok := receiveCaddyLogs(l.addr, l.hf, func(batch []fetcher.LogEntry) {
+			for _, e := range batch {
+				l.buf.Append(e)
+			}
+		})
+		if !ok {
+			return nil, 0, fmt.Errorf("logs are not available: cannot listen on %s", l.addr)
+		}
+		l.stop = stop
+		time.AfterFunc(l.lease, l.expire)
+		l.log.Info("remote logs started: log sinks installed in Caddy", "listen", addr)
+	} else if after < 0 {
+		after = l.buf.WriteCount()
+	}
+	l.last = time.Now()
+	entries, next := l.buf.Since(after, limit)
+	return entries, next, nil
+}
+
+func (l *remoteLogs) expire() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.stop == nil {
+		return
+	}
+	if left := l.lease - time.Since(l.last); left > 0 {
+		time.AfterFunc(left, l.expire)
+		return
+	}
+	l.end()
+}
+
+func (l *remoteLogs) end() {
+	l.stop()
+	l.stop = nil
+	l.buf.Clear()
+	l.log.Info("remote logs stopped: Caddy restored")
+}
+
+func (l *remoteLogs) Close() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.stop != nil {
+		l.end()
+	}
+	l.unavailable = errors.New("logs are not available: the daemon is stopping")
 }

@@ -19,8 +19,6 @@ func instanceNames(perInstance map[string]time.Duration) []string {
 	return names
 }
 
-// resolveInstance returns the holder key that ?instance= designates, required
-// on a multi-instance daemon, or answers the error itself.
 func resolveInstance(w http.ResponseWriter, r *http.Request, names []string, perInstance map[string]time.Duration) (string, bool) {
 	if len(names) <= 1 {
 		return "", true

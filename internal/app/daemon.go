@@ -84,6 +84,7 @@ func newMetricsHandler(holder *exporter.StateHolder, cfg *config, perInstance ma
 	if cfg.serveRemote {
 		mux.HandleFunc("GET /snapshot", exporter.SnapshotHandler(holder, cfg.interval, perInstance))
 		mux.HandleFunc("GET /certificates", exporter.CertificatesHandler(holder, perInstance, cfg.certSources))
+		mux.HandleFunc("GET /logs", exporter.LogsHandler(cfg.logSource))
 	}
 
 	var handler http.Handler = mux
@@ -133,6 +134,11 @@ func runDaemon(ctx context.Context, instances []*instance, cfg *config, plugins 
 	dPlugins := newDaemonPlugins(plugins)
 
 	cfg.certSources = certSources(instances)
+	if cfg.serveRemote {
+		logs := newRemoteLogs(cfg, instances)
+		defer logs.Close()
+		cfg.logSource = logs
+	}
 	srv := newMetricsServer(cfg.expose, newMetricsHandler(holder, cfg, perInstanceIntervals(instances)))
 	if err := configureExposeServer(srv, cfg); err != nil {
 		return err

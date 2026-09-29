@@ -7,21 +7,32 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// RemoteSnapshot is the body of the daemon's /snapshot route.
 type RemoteSnapshot struct {
 	Interval time.Duration `json:"interval"`
 	Stale    bool          `json:"stale"`
 	Snapshot *Snapshot     `json:"snapshot"`
 }
 
-// RemoteFetcher reads snapshots and certificates from an Ember daemon started
-// with --serve-remote. It cannot restart workers: a remote session is read-only.
+type RemoteLogs struct {
+	Next    int64      `json:"next"`
+	Entries []LogEntry `json:"entries"`
+}
+
+// MaxRemoteLogs caps a /logs page: a full one means more lines are waiting.
+const MaxRemoteLogs = 1000
+
+// RefusedError is a 4xx answer: the daemon would refuse the same request again.
+type RefusedError struct{ error }
+
+// RemoteFetcher cannot restart workers: a remote session is read-only.
 type RemoteFetcher struct {
 	base       *url.URL
 	user, pass string
@@ -30,8 +41,7 @@ type RemoteFetcher struct {
 	last       time.Time
 }
 
-// NewRemoteFetcher targets the daemon at base, whose query (e.g. ?instance=)
-// is kept on every request. auth is "user:password" or empty.
+// NewRemoteFetcher keeps the query of base (e.g. ?instance=) on every request; auth is "user:password" or empty.
 func NewRemoteFetcher(base *url.URL, auth string, tlsCfg *tls.Config, version string) *RemoteFetcher {
 	user, pass, _ := strings.Cut(auth, ":")
 	return &RemoteFetcher{
@@ -47,7 +57,7 @@ func NewRemoteFetcher(base *url.URL, auth string, tlsCfg *tls.Config, version st
 	}
 }
 
-// Interval asks the daemon for its polling interval and marks its current snapshot as seen.
+// Interval also marks the daemon's current snapshot as seen.
 func (f *RemoteFetcher) Interval(ctx context.Context) (time.Duration, error) {
 	env, err := f.get(ctx, time.Time{})
 	if err != nil {
@@ -91,13 +101,11 @@ func (f *RemoteFetcher) get(ctx context.Context, after time.Time) (*RemoteSnapsh
 	return &env, nil
 }
 
-// FetchPKICertificates returns the certificates of the daemon's Caddy PKI.
 func (f *RemoteFetcher) FetchPKICertificates(ctx context.Context) []CertificateInfo {
 	return f.certificates(ctx, "pki")
 }
 
-// DialTLSCertificates returns the certificates served on the hosts the daemon
-// monitors: the daemon picks the hosts, so hosts is ignored.
+// DialTLSCertificates ignores hosts: the daemon dials the hosts it monitors.
 func (f *RemoteFetcher) DialTLSCertificates(ctx context.Context, _ []string) []CertificateInfo {
 	return f.certificates(ctx, "tls")
 }
@@ -110,13 +118,22 @@ func (f *RemoteFetcher) certificates(ctx context.Context, source string) []Certi
 	return certs
 }
 
+// FetchLogs takes -1 as the first cursor; that request waits while the daemon installs the sinks.
+func (f *RemoteFetcher) FetchLogs(ctx context.Context, after int64) (*RemoteLogs, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var page RemoteLogs
+	if err := f.do(ctx, "/logs", url.Values{"after": {strconv.FormatInt(after, 10)}}, &page); err != nil {
+		return nil, err
+	}
+	return &page, nil
+}
+
 func (f *RemoteFetcher) do(ctx context.Context, path string, params url.Values, out any) error {
 	u := *f.base
 	u.Path = strings.TrimRight(u.Path, "/") + path
 	q := u.Query()
-	for k, v := range params {
-		q[k] = v
-	}
+	maps.Copy(q, params)
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -138,10 +155,14 @@ func (f *RemoteFetcher) do(ctx context.Context, path string, params url.Values, 
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusUnauthorized:
-		return errors.New("the daemon rejected the credentials: check EMBER_REMOTE_AUTH or --remote-auth")
+		return RefusedError{errors.New("the daemon rejected the credentials: check EMBER_REMOTE_AUTH or --remote-auth")}
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("daemon answered %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("daemon answered %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		if resp.StatusCode < http.StatusInternalServerError {
+			return RefusedError{err}
+		}
+		return err
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("decode daemon %s: %w", strings.TrimPrefix(path, "/"), err)

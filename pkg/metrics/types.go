@@ -160,7 +160,6 @@ func (b HistogramBucket) MarshalJSON() ([]byte, error) {
 	return json.Marshal(histogramBucketJSON{UpperBound: bound, CumulativeCount: b.CumulativeCount})
 }
 
-// UnmarshalJSON accepts a number or "+Inf".
 func (b *HistogramBucket) UnmarshalJSON(data []byte) error {
 	raw := struct {
 		UpperBound      json.RawMessage `json:"upperBound"`

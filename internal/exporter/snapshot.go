@@ -21,8 +21,6 @@ func hasSnapshotAfter(slot *instanceSlot, after time.Time) bool {
 	return slot != nil && slot.state.Current != nil && (after.IsZero() || slot.state.Current.FetchedAt.After(after))
 }
 
-// SnapshotHandler serves /snapshot. With ?after= it holds the answer until a
-// newer snapshot is stored, for at most twice the instance's interval.
 func SnapshotHandler(holder *StateHolder, defaultInterval time.Duration, perInstance map[string]time.Duration) http.HandlerFunc {
 	names := instanceNames(perInstance)
 	return func(w http.ResponseWriter, r *http.Request) {
