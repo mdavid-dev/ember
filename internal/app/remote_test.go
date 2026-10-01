@@ -97,15 +97,6 @@ func TestPrepareRemote_ExportedAddrNeverBlocks(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func freePort(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	addr := ln.Addr().String()
-	require.NoError(t, ln.Close())
-	return addr
-}
-
 func TestRemote_EndToEndOverTLS(t *testing.T) {
 	var mu sync.Mutex
 	methods := map[string]int{}
@@ -129,10 +120,14 @@ caddy_http_request_duration_seconds_count{server="srv0"} %d
 	t.Cleanup(caddy.Close)
 
 	pki := writeTestPKI(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	expose := ln.Addr().String()
+	require.NoError(t, ln.Close())
 	cfg := &config{
 		addrs:       []addrSpec{{url: caddy.URL}},
 		interval:    200 * time.Millisecond,
-		expose:      freePort(t),
+		expose:      expose,
 		daemon:      true,
 		serveRemote: true,
 		metricsAuth: "remote:s3cret",

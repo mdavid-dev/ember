@@ -388,10 +388,14 @@ func TestRunDaemon_ServesLogsAndRestoresCaddyOnShutdown(t *testing.T) {
 	api := newFakeCaddyLogAPI(t)
 	t.Cleanup(api.srv.Close)
 	api.addServer("srv0", "")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	expose := ln.Addr().String()
+	require.NoError(t, ln.Close())
 	cfg := &config{
 		addrs:       []addrSpec{{url: api.srv.URL}},
 		interval:    time.Second,
-		expose:      freePort(t),
+		expose:      expose,
 		daemon:      true,
 		serveRemote: true,
 		metricsAuth: "remote:s3cret",
