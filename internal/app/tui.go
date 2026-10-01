@@ -129,8 +129,8 @@ func startMetricsServer(srv *http.Server) <-chan error {
 // and enables access logging on every server that did not already have a logs
 // block. The returned cleanup function reverses both changes.
 func setupLogSource(cfg *config, f fetcher.Fetcher, uiCfg *ui.Config) func() {
-	if cfg.remoteURL != nil {
-		return startRemoteLogs(f.(*fetcher.RemoteFetcher), uiCfg)
+	if rf, ok := f.(*fetcher.RemoteFetcher); ok {
+		return startRemoteLogs(rf, cfg.remotePage, cfg.logsRefusal, uiCfg)
 	}
 	if cfg.stdinLogs {
 		startStdinListener(uiCfg)
@@ -146,7 +146,8 @@ func setupLogSource(cfg *config, f fetcher.Fetcher, uiCfg *ui.Config) func() {
 	return func() {}
 }
 
-// logListenAddr returns false when Caddy is on another host and no --log-listen says how to reach Ember.
+// logListenAddr returns false when Caddy is on another host and no
+// --log-listen says how to reach Ember.
 func logListenAddr(cfg *config) (string, bool) {
 	if cfg.logListen != "" {
 		return cfg.logListen, true
@@ -234,11 +235,16 @@ func isJSONLogLine(line string) bool {
 
 var sinkWatchdogInterval = 30 * time.Second
 
-// startNetListener returns ok=false when the local TCP bind fails or the fetcher is not an HTTPFetcher.
+// startNetListener opens a TCP listener and asks Caddy to push access logs
+// into it via a hot-registered sink. A background watchdog re-registers the
+// sink if Caddy is reloaded (which wipes runtime config) or was not reachable
+// at startup. Returns ok=false only when the local TCP bind fails or the
+// fetcher is not an HTTPFetcher.
 func startNetListener(addr string, f fetcher.Fetcher, uiCfg *ui.Config) (func(), bool) {
+	noop := func() {}
 	hf, ok := f.(*fetcher.HTTPFetcher)
 	if !ok {
-		return func() {}, false
+		return noop, false
 	}
 
 	accessBuf, runtimeBuf, routeAgg, store := newLogBuffers()
@@ -272,19 +278,21 @@ func newLogBuffers() (*model.LogBuffer, *model.LogBuffer, *model.RouteAggregator
 	}
 }
 
-func startRemoteLogs(rf *fetcher.RemoteFetcher, uiCfg *ui.Config) func() {
-	page, err := rf.FetchLogs(context.Background(), -1)
-	if errors.As(err, new(fetcher.RefusedError)) {
-		uiCfg.LogsRefusal = err.Error()
+func startRemoteLogs(rf *fetcher.RemoteFetcher, page *fetcher.RemoteLogs, refusal error, uiCfg *ui.Config) func() {
+	if refusal != nil {
+		uiCfg.LogsRefusal = refusal.Error()
 		return func() {}
 	}
 	accessBuf, runtimeBuf, routeAgg, store := newLogBuffers()
 	uiCfg.LogBuffer, uiCfg.RuntimeLogBuffer, uiCfg.RouteAggregator = accessBuf, runtimeBuf, routeAgg
-	// At least every second, whatever the interval, so the daemon's lease never lapses.
+	// At least every second, whatever the interval, so the daemon's lease
+	// never lapses.
 	ticker := time.NewTicker(min(max(uiCfg.Interval, minInterval), time.Second))
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
+	var done sync.WaitGroup
+	done.Go(func() {
 		defer ticker.Stop()
+		var err error
 		next := int64(-1)
 		for !errors.As(err, new(fetcher.RefusedError)) {
 			if err == nil {
@@ -300,15 +308,15 @@ func startRemoteLogs(rf *fetcher.RemoteFetcher, uiCfg *ui.Config) func() {
 			}
 			page, err = rf.FetchLogs(ctx, next)
 		}
-	}()
-	return cancel
+	})
+	return func() {
+		cancel()
+		done.Wait()
+	}
 }
 
-// receiveCaddyLogs opens a TCP listener and asks Caddy to push access logs
-// into it via a hot-registered sink. A background watchdog re-registers the
-// sink if Caddy is reloaded (which wipes runtime config) or was not reachable
-// at startup. Returns the address given to Caddy, and ok=false only when the
-// local TCP bind fails.
+// receiveCaddyLogs is startNetListener without the UI, shared with a
+// --serve-remote daemon; it returns the address given to Caddy.
 func receiveCaddyLogs(addr string, hf *fetcher.HTTPFetcher, onBatch func([]fetcher.LogEntry)) (string, func(), bool) {
 	noop := func() {}
 

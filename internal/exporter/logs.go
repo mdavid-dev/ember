@@ -8,10 +8,12 @@ import (
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 )
 
+// LogSource gives the log lines after a cursor, and the cursor that follows.
 type LogSource interface {
 	Since(after int64, limit int) ([]fetcher.LogEntry, int64, error)
 }
 
+// LogsHandler serves a page of the remote session's logs from an after cursor.
 func LogsHandler(src LogSource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		after, err := strconv.ParseInt(cmp.Or(r.URL.Query().Get("after"), "-1"), 10, 64)

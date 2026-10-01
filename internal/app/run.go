@@ -40,8 +40,8 @@ type config struct {
 	insecure      bool
 	metricsAuth   string
 	recorder      *instrumentation.Recorder
-	instSources   map[string]exporter.InstanceSource
 	logSource     exporter.LogSource
+	relayed       *fetcher.HTTPFetcher
 	logListen     string
 	configPath    string
 	configDefault string
@@ -54,6 +54,8 @@ type config struct {
 	remote        string
 	remoteAuth    string
 	remoteURL     *url.URL
+	remotePage    *fetcher.RemoteLogs
+	logsRefusal   error
 }
 
 func Run(args []string, version string) error {
@@ -418,6 +420,9 @@ func validate(cfg *config) error {
 	}
 	if cfg.serveRemote && cfg.metricsAuth == "" && cfg.exposeCA == "" {
 		return fmt.Errorf("--serve-remote requires --metrics-auth or --expose-client-ca")
+	}
+	if cfg.serveRemote && len(cfg.addrs) > 1 {
+		return fmt.Errorf("--serve-remote relays a single Caddy: it is incompatible with several --addr")
 	}
 	if cfg.metricsPrefix != "" && !isValidMetricPrefix(cfg.metricsPrefix) {
 		return fmt.Errorf("--metrics-prefix %q is not a valid Prometheus metric name prefix (allowed: letters, digits, underscores; must not start with a digit; e.g. \"my_app\")", cfg.metricsPrefix)

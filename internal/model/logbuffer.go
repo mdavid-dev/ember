@@ -59,8 +59,9 @@ func (b *LogBuffer) WriteCount() int64 {
 	return b.writeCount
 }
 
-// Since returns, oldest first, up to limit entries (all when limit <= 0) after the cursor, and the next one.
-// An evicted cursor, or one past WriteCount after a restart, resumes from the oldest entry.
+// Since returns, oldest first, up to limit entries (all when limit <= 0) after
+// the cursor, and the next one. An evicted cursor, or one past WriteCount after
+// a restart, resumes from the oldest entry.
 func (b *LogBuffer) Since(after int64, limit int) ([]fetcher.LogEntry, int64) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

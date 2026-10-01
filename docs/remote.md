@@ -9,7 +9,7 @@ EMBER_METRICS_AUTH=ops:secret ember --daemon --expose :9191 --serve-remote \
   --expose-cert cert.pem --expose-key key.pem
 ```
 
-`--serve-remote` adds `GET /snapshot`, `GET /certificates`, `GET /logs` and `GET /config` to the `--expose` server. It requires `--metrics-auth`, or `--expose-client-ca` for mTLS. Without `--expose-cert` the daemon warns that traffic is in clear text: only do this behind a TLS proxy. `/metrics` shares the same listener, TLS and credentials.
+`--serve-remote` adds `GET /logs` and `GET /certificates` to the `--expose` server, and relays under `/caddy/` the read requests of the TUI to Caddy's admin API. It refuses any other method or path. It requires `--metrics-auth`, or `--expose-client-ca` for mTLS, and a single `--addr`. Without `--expose-cert` the daemon warns that traffic is in clear text: only do this behind a TLS proxy. `/metrics` shares the same listener, TLS and credentials.
 
 Remote sessions, refused requests, and the installation and removal of the log sinks are logged by the daemon.
 
@@ -19,7 +19,7 @@ Remote sessions, refused requests, and the installation and removal of the log s
 EMBER_REMOTE_AUTH=ops:secret ember --remote https://prod:9191 --ca-cert ca.pem
 ```
 
-`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. On a multi-instance daemon, add `?instance=NAME` to the URL. Worker restart is not available remotely; the Caddy Config, Certificates and Logs tabs show what the daemon sees.
+`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. The TUI reads Caddy as it does over SSH, at its own `--interval`, through the daemon. `--remote` exits at once when the daemon cannot be reached or refuses the credentials; with Caddy down behind a reachable daemon, the TUI starts and shows the outage as over SSH. Worker restart is not available remotely. The Certificates tab shows what the daemon sees: the daemon dials the TLS hosts it monitors.
 
 ## Logs
 
@@ -29,7 +29,7 @@ The Logs tab works in a remote session, with the same effect on Caddy as a local
 - 30 seconds after the last remote TUI stopped asking, or when the daemon stops, it removes the sinks and the `logs` blocks it added. An empty `logging.logs` section it had to create stays, as it does after a local TUI. Several remote TUIs share one installation.
 - Without a remote TUI, the daemon changes nothing in Caddy.
 
-The daemon listens for Caddy on a free loopback port when Caddy's admin API is on localhost. Otherwise start it with `--log-listen` and an address Caddy can reach: logs travel from Caddy to the daemon in clear text, as they do to a local TUI. A multi-instance daemon does not serve logs, and the tab says why.
+The daemon listens for Caddy on a free loopback port when Caddy's admin API is on localhost. Otherwise start it with `--log-listen` and an address Caddy can reach: logs travel from Caddy to the daemon in clear text, as they do to a local TUI.
 
 ## Security
 

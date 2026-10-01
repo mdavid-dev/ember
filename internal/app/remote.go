@@ -2,16 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/spf13/cobra"
 )
-
-const remoteHandshakeTimeout = 10 * time.Second
 
 func prepareRemote(cmd *cobra.Command, cfg *config) error {
 	for _, c := range []struct {
@@ -26,8 +25,8 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 		}
 	}
 	u, err := url.Parse(cfg.remote)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return fmt.Errorf("--remote must be an https:// URL, got %q", cfg.remote)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" {
+		return fmt.Errorf("--remote must be an https:// URL without a query, got %q", cfg.remote)
 	}
 	if u.Scheme == "http" && !fetcher.IsLocalAddr(cfg.remote) {
 		return fmt.Errorf("--remote must use https:// (http:// is only accepted for localhost), got %q", cfg.remote)
@@ -37,6 +36,9 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 			return fmt.Errorf("--remote-auth must be in user:password format (both parts required)")
 		}
 	}
+	if cfg.interval < minInterval {
+		return fmt.Errorf("--interval must be at least %s", minInterval)
+	}
 	if cmd.Flag("addr").Changed {
 		cfg.logger.Warn("--addr and EMBER_ADDR are ignored with --remote")
 	}
@@ -45,20 +47,26 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 }
 
 func runRemote(ctx context.Context, cfg *config, version string) error {
-	tlsCfg, err := fetcher.BuildTLSConfig(fetcher.TLSOptions{
-		CACert: cfg.caCert, ClientCert: cfg.clientCert, ClientKey: cfg.clientKey, Insecure: cfg.insecure,
-	})
+	tlsCfg, err := fetcher.BuildTLSConfig(effectiveTLS(addrSpec{}, cfg))
 	if err != nil {
 		return err
 	}
 	f := fetcher.NewRemoteFetcher(cfg.remoteURL, cfg.remoteAuth, tlsCfg, version)
 	defer f.CloseIdleConnections()
-
-	ictx, cancel := context.WithTimeout(ctx, remoteHandshakeTimeout)
-	interval, err := f.Interval(ictx)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("remote daemon %s: %w", cfg.remoteURL.Host, err)
+	// The first /logs request opens the session before the TUI does.
+	cfg.remotePage, cfg.logsRefusal = f.FetchLogs(ctx, -1)
+	if remoteFatal(cfg.logsRefusal) {
+		return fmt.Errorf("remote daemon %s: %w", cfg.remoteURL.Host, cfg.logsRefusal)
 	}
-	return runTUI(f, cfg, interval, false, version, nil)
+
+	hasFrankenPHP := f.DetectFrankenPHP(ctx)
+	f.FetchServerNames(ctx)
+	return runTUI(f, cfg, cfg.interval, hasFrankenPHP, version, nil)
+}
+
+// remoteFatal stops a remote TUI on an unreachable or failing daemon, or on
+// refused credentials; logs the daemon cannot serve only leave the tab empty.
+func remoteFatal(err error) bool {
+	var refused fetcher.RefusedError
+	return err != nil && (!errors.As(err, &refused) || refused.Status == http.StatusUnauthorized)
 }

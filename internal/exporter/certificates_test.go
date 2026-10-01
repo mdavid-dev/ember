@@ -9,72 +9,31 @@ import (
 	"time"
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
+	"github.com/alexandre-daubois/ember/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type fakeInstanceSource struct {
-	ca        string
-	dialed    []string
-	config    string
-	configErr error
-}
-
-func (f *fakeInstanceSource) FetchPKICertificates(context.Context) []fetcher.CertificateInfo {
-	return []fetcher.CertificateInfo{{Subject: f.ca, Source: "pki"}}
-}
-
-func (f *fakeInstanceSource) DialTLSCertificates(_ context.Context, hosts []string) []fetcher.CertificateInfo {
-	f.dialed = hosts
-	return []fetcher.CertificateInfo{{Subject: hosts[0], Source: "tls"}}
-}
-
-func (f *fakeInstanceSource) FetchConfig(context.Context) (json.RawMessage, error) {
-	return json.RawMessage(f.config), f.configErr
-}
-
-func getCertificates(t *testing.T, h http.Handler, query string) (*httptest.ResponseRecorder, []fetcher.CertificateInfo) {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/certificates?"+query, nil))
-	var certs []fetcher.CertificateInfo
-	if rec.Code == http.StatusOK {
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &certs))
-	}
-	return rec, certs
-}
-
-func TestCertificatesHandler_Sources(t *testing.T) {
+func TestCertificatesHandler_DialsTheDaemonsHosts(t *testing.T) {
 	holder := &StateHolder{}
-	storeSnapshot(holder, "", &fetcher.Snapshot{FetchedAt: time.Now(), Metrics: fetcher.MetricsSnapshot{
+	var s model.State
+	s.Update(&fetcher.Snapshot{FetchedAt: time.Now(), Metrics: fetcher.MetricsSnapshot{
 		Hosts: map[string]*fetcher.HostMetrics{"shop.test": {Host: "shop.test"}, "api.test": {Host: "api.test"}},
 	}})
-	src := &fakeInstanceSource{}
-	h := CertificatesHandler(holder, singleIntervals, map[string]InstanceSource{"": src})
+	holder.StoreAll(s.CopyForExport(), nil)
+	var dialed []string
+	dial := func(_ context.Context, hosts []string) []fetcher.CertificateInfo {
+		dialed = hosts
+		return []fetcher.CertificateInfo{{Subject: hosts[0], Source: "tls"}}
+	}
+	rec := httptest.NewRecorder()
 
-	rec, certs := getCertificates(t, h, "source=pki")
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "pki", certs[0].Source)
+	CertificatesHandler(holder, dial)(rec, httptest.NewRequest(http.MethodGet, "/certificates?host=evil.example", nil))
 
-	rec, certs = getCertificates(t, h, "source=tls&host=evil.example")
 	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	var certs []fetcher.CertificateInfo
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &certs))
 	assert.Equal(t, "tls", certs[0].Source)
-	assert.Equal(t, []string{"api.test", "shop.test"}, src.dialed, "only the hosts of the daemon's snapshot")
-
-	rec, _ = getCertificates(t, h, "source=disk")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestCertificatesHandler_MultiInstance(t *testing.T) {
-	holder := &StateHolder{}
-	holder.SetMulti(true)
-	intervals := map[string]time.Duration{"web1": time.Second, "web2": time.Second}
-	h := CertificatesHandler(holder, intervals, map[string]InstanceSource{"web1": &fakeInstanceSource{ca: "web1 CA"}, "web2": &fakeInstanceSource{ca: "web2 CA"}})
-
-	rec, _ := getCertificates(t, h, "source=pki")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	rec, certs := getCertificates(t, h, "source=pki&instance=web2")
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "web2 CA", certs[0].Subject)
+	assert.Equal(t, []string{"api.test", "shop.test"}, dialed, "only the hosts of the daemon's snapshot")
 }

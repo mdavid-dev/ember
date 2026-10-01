@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"io"
 	"log/slog"
 	"math/big"
@@ -23,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexandre-daubois/ember/internal/exporter"
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,6 +110,12 @@ func startRemoteServer(t *testing.T, cfg *config) (string, *syncBuffer) {
 	if cfg.interval == 0 {
 		cfg.interval = time.Second
 	}
+	if cfg.logSource == nil {
+		cfg.logSource = stubLogSource{}
+	}
+	if cfg.relayed == nil {
+		cfg.relayed = fetcher.NewHTTPFetcher("http://127.0.0.1:1", 0)
+	}
 	srv := newMetricsServer("127.0.0.1:0", newMetricsHandler(freshHolder(), cfg, map[string]time.Duration{"": cfg.interval}))
 	require.NoError(t, configureExposeServer(srv, cfg))
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -159,6 +165,10 @@ func TestValidate_ServeRemote(t *testing.T) {
 		{"client CA without TLS", func(c *config) { c.exposeCA = pki.caFile }, "--expose-client-ca requires --expose-cert and --expose-key"},
 		{"basic auth", func(c *config) { c.metricsAuth = "u:p" }, ""},
 		{"mTLS only", func(c *config) { c.exposeCert, c.exposeKey, c.exposeCA = pki.serverCert, pki.serverKey, pki.caFile }, ""},
+		{"TLS without daemon", func(c *config) { c.daemon, c.exposeCert, c.exposeKey = false, pki.serverCert, pki.serverKey }, "--expose-cert requires --daemon"},
+		{"several --addr", func(c *config) {
+			c.metricsAuth, c.addrsRaw = "u:p", []string{"web1=http://localhost:2019", "web2=http://localhost:2020"}
+		}, "--serve-remote relays a single Caddy"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,61 +185,59 @@ func TestValidate_ServeRemote(t *testing.T) {
 	}
 }
 
-func TestValidate_ExposeCertRequiresDaemon(t *testing.T) {
-	cfg := &config{expose: ":9191", interval: time.Second, addrsRaw: []string{"http://localhost:2019"}, exposeCert: "c.pem", exposeKey: "k.pem"}
-	err := validate(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--expose-cert requires --daemon")
-}
-
 type stubLogSource struct{}
 
 func (stubLogSource) Since(int64, int) ([]fetcher.LogEntry, int64, error) { return nil, 0, nil }
 
-func TestNewMetricsHandler_SnapshotRouteNeedsServeRemote(t *testing.T) {
-	for _, serveRemote := range []bool{false, true} {
-		cfg := &config{interval: time.Second, serveRemote: serveRemote, logSource: stubLogSource{},
-			instSources: map[string]exporter.InstanceSource{"": fetcher.NewHTTPFetcher("http://127.0.0.1:1", 0)}}
-		rec := httptest.NewRecorder()
-		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/snapshot", nil))
-		certs := httptest.NewRecorder()
-		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(certs, httptest.NewRequest(http.MethodGet, "/certificates?source=pki", nil))
-		logs := httptest.NewRecorder()
-		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(logs, httptest.NewRequest(http.MethodGet, "/logs", nil))
-		caddyConfig := httptest.NewRecorder()
-		newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(caddyConfig, httptest.NewRequest(http.MethodGet, "/config", nil))
-		if serveRemote {
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, http.StatusOK, certs.Code)
-			assert.Equal(t, http.StatusOK, logs.Code)
-			assert.Equal(t, http.StatusBadGateway, caddyConfig.Code, "no Caddy behind the daemon")
-		} else {
-			assert.Equal(t, http.StatusNotFound, rec.Code)
-			assert.Equal(t, http.StatusNotFound, certs.Code)
-			assert.Equal(t, http.StatusNotFound, logs.Code)
-			assert.Equal(t, http.StatusNotFound, caddyConfig.Code)
-		}
-	}
-
-	rec := httptest.NewRecorder()
-	cfg := &config{interval: time.Second, serveRemote: true}
-	newMetricsHandler(freshHolder(), cfg, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/snapshot", nil))
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+// countingAdmin stands for Caddy's admin API and counts what reaches it.
+type countingAdmin struct {
+	mu   sync.Mutex
+	seen []string
 }
 
-func TestConfigureExposeServer_BadTLSMaterialFails(t *testing.T) {
-	pki := writeTestPKI(t)
-	bad := filepath.Join(t.TempDir(), "bad.pem")
-	require.NoError(t, os.WriteFile(bad, []byte("not a cert"), 0o600))
-	log := slog.New(slog.DiscardHandler)
+func (a *countingAdmin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	a.seen = append(a.seen, r.Method+" "+r.URL.Path)
+	a.mu.Unlock()
+	switch r.URL.Path {
+	case "/frankenphp/threads":
+		http.Error(w, "no FrankenPHP here", http.StatusNotFound)
+		return
+	case "/config/apps/pki/certificate_authorities":
+		http.Error(w, `{"error":"invalid traversal path at: config/apps/pki/certificate_authorities"}`, http.StatusBadRequest)
+		return
+	}
+	_, _ = w.Write([]byte("{}"))
+}
 
-	for name, cfg := range map[string]*config{
-		"missing cert": {exposeCert: "/nonexistent.pem", exposeKey: pki.serverKey, logger: log},
-		"mismatched":   {exposeCert: pki.serverCert, exposeKey: pki.clientKey, logger: log},
-		"bad CA":       {exposeCert: pki.serverCert, exposeKey: pki.serverKey, exposeCA: bad, logger: log},
-	} {
-		err := configureExposeServer(&http.Server{}, cfg)
-		require.Error(t, err, name)
+func (a *countingAdmin) requests() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.seen...)
+}
+
+func newCountingAdmin(t *testing.T) (*countingAdmin, *fetcher.HTTPFetcher) {
+	t.Helper()
+	admin := &countingAdmin{}
+	srv := httptest.NewServer(admin)
+	t.Cleanup(srv.Close)
+	return admin, fetcher.NewHTTPFetcher(srv.URL, 0)
+}
+
+func TestNewMetricsHandler_RemoteRoutesNeedServeRemote(t *testing.T) {
+	_, hf := newCountingAdmin(t)
+	for _, serveRemote := range []bool{false, true} {
+		cfg := &config{interval: time.Second, serveRemote: serveRemote, logSource: stubLogSource{}, relayed: hf}
+		h := newMetricsHandler(freshHolder(), cfg, nil)
+		for _, path := range []string{"/logs", "/caddy/config/", "/certificates"} {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+			want := http.StatusNotFound
+			if serveRemote {
+				want = http.StatusOK
+			}
+			assert.Equal(t, want, rec.Code, "%s, serveRemote=%t", path, serveRemote)
+		}
 	}
 }
 
@@ -246,27 +254,31 @@ func TestConfigureExposeServer_WarnsWithoutTLS(t *testing.T) {
 
 func TestServeRemote_BasicAuthOverTLS(t *testing.T) {
 	pki := writeTestPKI(t)
+	admin, hf := newCountingAdmin(t)
 	url, logs := startRemoteServer(t, &config{
 		metricsAuth: "remote-user:s3cret-pass",
 		exposeCert:  pki.serverCert,
 		exposeKey:   pki.serverKey,
+		relayed:     hf,
 	})
 	refused := tlsClient(pki.pool)
-	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/snapshot", "", ""))
-	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/snapshot", "wrong-user", "wrong-pass"))
-	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/certificates?source=pki", "", ""))
-	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/logs", "", ""))
-	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/config", "", ""))
+	for _, path := range []string{"/caddy/metrics", "/caddy/config/", "/logs?after=-1"} {
+		assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+path, "", ""), path)
+	}
+	assert.Equal(t, http.StatusUnauthorized, getWithAuth(t, refused, url+"/caddy/metrics", "wrong-user", "wrong-pass"))
 	refused.CloseIdleConnections()
+	assert.Empty(t, admin.requests(), "nothing reaches Caddy without the credentials")
 
 	client := tlsClient(pki.pool)
-	assert.Equal(t, http.StatusOK, getWithAuth(t, client, url+"/snapshot", "remote-user", "s3cret-pass"))
-	assert.Equal(t, http.StatusOK, getWithAuth(t, client, url+"/snapshot?after=0001-01-01T00:00:00Z", "remote-user", "s3cret-pass"))
+	assert.Equal(t, http.StatusOK, getWithAuth(t, client, url+"/caddy/metrics", "remote-user", "s3cret-pass"))
+	assert.Equal(t, http.StatusOK, getWithAuth(t, client, url+"/logs?after=-1", "remote-user", "s3cret-pass"))
+	assert.Equal(t, http.StatusOK, getWithAuth(t, client, url+"/logs?after=0", "remote-user", "s3cret-pass"))
 	assert.Equal(t, http.StatusOK, getWithAuth(t, client, url+"/metrics", "remote-user", "s3cret-pass"))
 	client.CloseIdleConnections()
+	assert.Equal(t, []string{"GET /metrics"}, admin.requests())
 
 	require.Eventually(t, func() bool {
-		return strings.Count(logs.String(), `msg="remote request refused"`) == 5 &&
+		return strings.Count(logs.String(), `msg="remote request refused"`) == 4 &&
 			strings.Contains(logs.String(), "remote session opened")
 	}, 2*time.Second, 10*time.Millisecond)
 	out := logs.String()
@@ -276,6 +288,63 @@ func TestServeRemote_BasicAuthOverTLS(t *testing.T) {
 	for _, secret := range []string{"remote-user", "s3cret-pass", "wrong-user", "wrong-pass"} {
 		assert.NotContains(t, out, secret)
 	}
+}
+
+func TestServeRemote_TracesTheRelayRefusals(t *testing.T) {
+	pki := writeTestPKI(t)
+	admin, hf := newCountingAdmin(t)
+	url, logs := startRemoteServer(t, &config{
+		metricsAuth: "remote-user:s3cret-pass",
+		exposeCert:  pki.serverCert,
+		exposeKey:   pki.serverKey,
+		relayed:     hf,
+	})
+	client := tlsClient(pki.pool)
+	t.Cleanup(client.CloseIdleConnections)
+
+	assert.Equal(t, http.StatusForbidden, getWithAuth(t, client, url+"/caddy/debug/pprof/", "remote-user", "s3cret-pass"))
+	req, err := http.NewRequest(http.MethodPost, url+"/caddy/frankenphp/workers/restart", nil)
+	require.NoError(t, err)
+	req.SetBasicAuth("remote-user", "s3cret-pass")
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	assert.Equal(t, http.StatusNotFound, getWithAuth(t, client, url+"/caddy/frankenphp/threads", "remote-user", "s3cret-pass"))
+	assert.Equal(t, http.StatusBadRequest, getWithAuth(t, client, url+"/caddy/config/apps/pki/certificate_authorities", "remote-user", "s3cret-pass"))
+
+	assert.Equal(t, []string{"GET /frankenphp/threads", "GET /config/apps/pki/certificate_authorities"}, admin.requests(), "only the TUI reads reached Caddy")
+	require.Eventually(t, func() bool {
+		return strings.Count(logs.String(), `msg="remote request refused"`) == 2
+	}, 2*time.Second, 10*time.Millisecond)
+	out := logs.String()
+	assert.Contains(t, out, "method=GET path=/caddy/debug/pprof/ status=403")
+	assert.Contains(t, out, "method=POST path=/caddy/frankenphp/workers/restart status=405")
+	assert.NotContains(t, out, "/caddy/frankenphp/threads", "Caddy's own 404 is an answer, not a refusal")
+	assert.NotContains(t, out, "/caddy/config/apps/pki", "nor is its 400 for a PKI app it does not have")
+}
+
+type refusingLogSource struct{}
+
+func (refusingLogSource) Since(int64, int) ([]fetcher.LogEntry, int64, error) {
+	return nil, 0, errors.New("logs are not available: Caddy is on another host and the daemon has no --log-listen")
+}
+
+func TestServeRemote_TracesASessionWithoutLogs(t *testing.T) {
+	pki := writeTestPKI(t)
+	url, logs := startRemoteServer(t, &config{
+		metricsAuth: "remote-user:s3cret-pass",
+		exposeCert:  pki.serverCert,
+		exposeKey:   pki.serverKey,
+		logSource:   refusingLogSource{},
+	})
+	client := tlsClient(pki.pool)
+	t.Cleanup(client.CloseIdleConnections)
+
+	assert.Equal(t, http.StatusNotFound, getWithAuth(t, client, url+"/logs?after=-1", "remote-user", "s3cret-pass"))
+
+	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "remote session opened") }, 2*time.Second, 10*time.Millisecond)
+	assert.Contains(t, logs.String(), "path=/logs status=404", "the refusal of the logs is traced too")
 }
 
 func TestServeRemote_ClientCARequiresCertificate(t *testing.T) {
@@ -295,24 +364,14 @@ func TestServeRemote_ClientCARequiresCertificate(t *testing.T) {
 
 	cert, err := tls.LoadX509KeyPair(pki.clientCert, pki.clientKey)
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, getWithAuth(t, tlsClient(pki.pool, cert), url+"/snapshot", "", ""))
+	assert.Equal(t, http.StatusOK, getWithAuth(t, tlsClient(pki.pool, cert), url+"/logs?after=-1", "", ""))
 	assert.Contains(t, logs.String(), "client_cn=alice-laptop")
 }
 
-func TestCertSources_KeyedLikeTheHolder(t *testing.T) {
-	single := []*instance{{name: "web"}}
-	assert.Contains(t, instanceSources(single), "")
-
-	multi := []*instance{{name: "web1"}, {name: "web2"}}
-	sources := instanceSources(multi)
-	assert.Contains(t, sources, "web1")
-	assert.Contains(t, sources, "web2")
-}
-
-func newTestRemoteLogs(t *testing.T, cfg *config, instances []*instance) *remoteLogs {
+func newTestRemoteLogs(t *testing.T, cfg *config, hf *fetcher.HTTPFetcher) *remoteLogs {
 	t.Helper()
 	cfg.logger = slog.New(slog.DiscardHandler)
-	l := newRemoteLogs(cfg, instances)
+	l := newRemoteLogs(cfg, hf)
 	l.lease = 300 * time.Millisecond
 	t.Cleanup(l.Close)
 	return l
@@ -322,8 +381,7 @@ func TestRemoteLogs_LeaseInstallsThenRestoresCaddy(t *testing.T) {
 	api := newFakeCaddyLogAPI(t)
 	t.Cleanup(api.srv.Close)
 	api.addServer("srv0", "")
-	l := newTestRemoteLogs(t, &config{addrs: []addrSpec{{url: api.srv.URL}}},
-		[]*instance{{name: "test", fetcher: fetcher.NewHTTPFetcher(api.srv.URL, 0)}})
+	l := newTestRemoteLogs(t, &config{addrs: []addrSpec{{url: api.srv.URL}}}, fetcher.NewHTTPFetcher(api.srv.URL, 0))
 	assert.Zero(t, api.putCount(), "nothing is installed before a TUI asks for the logs")
 
 	_, next, err := l.Since(-1, 0)
@@ -364,24 +422,12 @@ func TestRemoteLogs_LeaseInstallsThenRestoresCaddy(t *testing.T) {
 	assert.Equal(t, 4, api.putCount(), "the next request opens a new session")
 }
 
-func TestRemoteLogs_Unavailable(t *testing.T) {
-	tests := []struct {
-		name      string
-		cfg       *config
-		instances []*instance
-		want      string
-	}{
-		{"multi-instance", &config{addrs: []addrSpec{{url: "http://localhost:2019"}, {url: "http://localhost:2020"}}},
-			[]*instance{{name: "web1"}, {name: "web2"}}, "multi-instance daemon"},
-		{"remote Caddy without --log-listen", &config{addrs: []addrSpec{{url: "http://prod.example.com:2019"}}},
-			[]*instance{{name: "prod"}}, "--log-listen"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := newTestRemoteLogs(t, tt.cfg, tt.instances).Since(0, 0)
-			require.ErrorContains(t, err, tt.want)
-		})
-	}
+func TestRemoteLogs_UnavailableWithoutLogListen(t *testing.T) {
+	cfg := &config{addrs: []addrSpec{{url: "http://prod.example.com:2019"}}}
+
+	_, _, err := newTestRemoteLogs(t, cfg, fetcher.NewHTTPFetcher(cfg.addrs[0].url, 0)).Since(0, 0)
+
+	require.ErrorContains(t, err, "--log-listen")
 }
 
 func TestRunDaemon_ServesLogsAndRestoresCaddyOnShutdown(t *testing.T) {

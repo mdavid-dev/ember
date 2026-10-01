@@ -11,8 +11,7 @@ import (
 
 func (a *App) doFetch() tea.Cmd {
 	return func() tea.Msg {
-		// Outlast a remote daemon, which holds the answer for up to two intervals.
-		ctx, cancel := context.WithTimeout(context.Background(), max(globalFetchTimeout, 3*a.config.Interval))
+		ctx, cancel := context.WithTimeout(context.Background(), globalFetchTimeout)
 		defer cancel()
 		snap, err := a.fetcher.Fetch(ctx)
 		return fetchMsg{snap: snap, err: err}

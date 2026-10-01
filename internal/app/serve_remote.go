@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/alexandre-daubois/ember/internal/exporter"
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/alexandre-daubois/ember/internal/model"
 )
@@ -40,23 +40,11 @@ func configureExposeServer(srv *http.Server, cfg *config) error {
 	}
 	if cfg.serveRemote {
 		if tc == nil {
-			cfg.logger.Warn("--serve-remote without --expose-cert: snapshots and credentials travel in clear text unless a TLS proxy terminates in front of Ember")
+			cfg.logger.Warn("--serve-remote without --expose-cert: Caddy's data and the credentials travel in clear text unless a TLS proxy terminates in front of Ember")
 		}
 		srv.Handler = traceRemote(srv.Handler, cfg.logger)
 	}
 	return nil
-}
-
-func instanceSources(instances []*instance) map[string]exporter.InstanceSource {
-	sources := make(map[string]exporter.InstanceSource, len(instances))
-	for _, inst := range instances {
-		key := ""
-		if isMulti(instances) {
-			key = inst.name
-		}
-		sources[key] = inst.fetcher
-	}
-	return sources
 }
 
 func listenMetrics(srv *http.Server) error {
@@ -68,16 +56,20 @@ func listenMetrics(srv *http.Server) error {
 
 func traceRemote(next http.Handler, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/snapshot" && r.URL.Path != "/certificates" && r.URL.Path != "/logs" && r.URL.Path != "/config" {
+		relayed := strings.HasPrefix(r.URL.Path, "/caddy/")
+		if r.URL.Path != "/logs" && r.URL.Path != "/certificates" && !relayed {
 			next.ServeHTTP(w, r)
 			return
 		}
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		switch {
-		case rec.status >= http.StatusBadRequest && rec.status < http.StatusInternalServerError:
-			log.Warn("remote request refused", "remote_addr", r.RemoteAddr, "status", rec.status)
-		case rec.status == http.StatusOK && r.URL.Path == "/snapshot" && !r.URL.Query().Has("after"):
+		// Caddy's own 4xx answer a TUI read, e.g. a 400 for a config path it lacks.
+		daemonRefused := !relayed || rec.status == http.StatusUnauthorized || rec.status == http.StatusForbidden || rec.status == http.StatusMethodNotAllowed
+		if rec.status >= http.StatusBadRequest && rec.status < http.StatusInternalServerError && daemonRefused {
+			log.Warn("remote request refused", "remote_addr", r.RemoteAddr, "method", r.Method, "path", r.URL.Path, "status", rec.status)
+		}
+		// A TUI opens its session with its first /logs request, served or not.
+		if r.URL.Path == "/logs" && r.URL.Query().Get("after") == "-1" && rec.status != http.StatusUnauthorized && rec.status != http.StatusForbidden {
 			attrs := []any{"remote_addr", r.RemoteAddr, "user_agent", r.UserAgent()}
 			if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 				attrs = append(attrs, "client_cn", r.TLS.PeerCertificates[0].Subject.CommonName)
@@ -99,7 +91,8 @@ func (r *statusRecorder) WriteHeader(code int) {
 
 const remoteLogsLease = 30 * time.Second
 
-// remoteLogs receives Caddy's logs only while a remote TUI polls /logs, as a local TUI does for its session.
+// remoteLogs receives Caddy's logs only while a remote TUI polls /logs, as a
+// local TUI does for its session.
 type remoteLogs struct {
 	hf    *fetcher.HTTPFetcher
 	addr  string
@@ -113,21 +106,18 @@ type remoteLogs struct {
 	last        time.Time
 }
 
-func newRemoteLogs(cfg *config, instances []*instance) *remoteLogs {
+func newRemoteLogs(cfg *config, hf *fetcher.HTTPFetcher) *remoteLogs {
 	l := &remoteLogs{lease: remoteLogsLease, log: cfg.logger}
-	addr, ok := logListenAddr(cfg)
-	switch {
-	case len(instances) != 1:
-		l.unavailable = errors.New("logs are not available on a multi-instance daemon")
-	case !ok:
+	if addr, ok := logListenAddr(cfg); ok {
+		l.hf, l.addr, l.buf = hf, addr, model.NewLogBuffer(0)
+	} else {
 		l.unavailable = errors.New("logs are not available: Caddy is on another host and the daemon has no --log-listen")
-	default:
-		l.hf, l.addr, l.buf = instances[0].fetcher, addr, model.NewLogBuffer(0)
 	}
 	return l
 }
 
-// Since gives a first request (after < 0) the session from its start if it opens it, from now otherwise.
+// Since gives a first request (after < 0) the session from its start if it
+// opens it, from now otherwise.
 func (l *remoteLogs) Since(after int64, limit int) ([]fetcher.LogEntry, int64, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

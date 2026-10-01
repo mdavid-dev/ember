@@ -6,13 +6,8 @@ All notable changes to Ember are documented here.
 
 ### Added
 
-- `ember --remote <url>` runs the TUI, read-only, against a daemon started with `--serve-remote`, which serves its latest snapshot on `GET /snapshot` behind `--metrics-auth` or a client certificate. `--expose-cert`, `--expose-key` and `--expose-client-ca` put the daemon's `--expose` server, Prometheus included, behind TLS or mTLS. See [Remote TUI](docs/remote.md).
+- `ember --remote <url>` runs the TUI, read-only, against a daemon started with `--serve-remote`, which relays under `/caddy/` the `GET` requests the TUI sends to Caddy's admin API, and nothing else, behind `--metrics-auth` or a client certificate. `--expose-cert`, `--expose-key` and `--expose-client-ca` put the daemon's `--expose` server, Prometheus included, behind TLS or mTLS. See [Remote TUI](docs/remote.md).
 - The Logs tab works in a remote session. While a remote TUI reads it, the daemon registers the log sinks in Caddy and enables access logs as a local TUI does, and restores Caddy 30 seconds after the last one stops or when it exits. `--log-listen` applies to the daemon when Caddy is not on localhost. See [Remote TUI](docs/remote.md#logs).
-- The Caddy Config tab and the config columns of the Upstreams tab work in a remote session: the daemon relays Caddy's configuration on `GET /config`, secrets included. See [Remote TUI](docs/remote.md#security).
-
-### Fixed
-
-- `pkg/metrics.HistogramBucket` encodes an infinite `UpperBound` as the string `"+Inf"`, so a snapshot holding Caddy's `+Inf` bucket can now be encoded as JSON.
 
 ## 1.6.1 - 2026-08-31
 

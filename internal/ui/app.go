@@ -52,11 +52,10 @@ type Config struct {
 
 type tab int
 
-var remoteUnavailable = map[tab]string{
-	tabLogs: "Logs are not available in a remote session.",
-}
-
-const remoteRestartUnavailable = "Worker restart is not available in a remote session."
+const (
+	remoteLogsUnavailable    = "Logs are not available in a remote session."
+	remoteRestartUnavailable = "Worker restart is not available in a remote session."
+)
 
 const (
 	tabCaddy tab = iota
@@ -392,8 +391,9 @@ func (a *App) View() string {
 		}
 	}
 
-	if msg, ok := remoteUnavailable[a.activeTab]; ok && a.config.Remote != "" && (a.activeTab != tabLogs || a.logBuffer == nil) {
-		if a.activeTab == tabLogs && a.config.LogsRefusal != "" {
+	if a.activeTab == tabLogs && a.config.Remote != "" && a.logBuffer == nil {
+		msg := remoteLogsUnavailable
+		if a.config.LogsRefusal != "" {
 			msg += "\n " + sanitizeControl(a.config.LogsRefusal)
 		}
 		contentList = greyStyle.Render(" " + msg)

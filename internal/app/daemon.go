@@ -82,10 +82,9 @@ func newMetricsHandler(holder *exporter.StateHolder, cfg *config, perInstance ma
 	mux.HandleFunc("/healthz", exporter.HealthHandler(holder, cfg.interval, perInstance))
 	mux.HandleFunc("/healthz/", exporter.InstanceHealthHandler(holder, cfg.interval, perInstance))
 	if cfg.serveRemote {
-		mux.HandleFunc("GET /snapshot", exporter.SnapshotHandler(holder, cfg.interval, perInstance))
-		mux.HandleFunc("GET /certificates", exporter.CertificatesHandler(holder, perInstance, cfg.instSources))
 		mux.HandleFunc("GET /logs", exporter.LogsHandler(cfg.logSource))
-		mux.HandleFunc("GET /config", exporter.ConfigHandler(perInstance, cfg.instSources))
+		mux.HandleFunc("GET /certificates", exporter.CertificatesHandler(holder, cfg.relayed.DialTLSCertificates))
+		mux.Handle("/caddy/", http.StripPrefix("/caddy", cfg.relayed.Relay()))
 	}
 
 	var handler http.Handler = mux
@@ -134,11 +133,11 @@ func runDaemon(ctx context.Context, instances []*instance, cfg *config, plugins 
 
 	dPlugins := newDaemonPlugins(plugins)
 
-	cfg.instSources = instanceSources(instances)
 	if cfg.serveRemote {
-		logs := newRemoteLogs(cfg, instances)
+		logs := newRemoteLogs(cfg, instances[0].fetcher)
 		defer logs.Close()
 		cfg.logSource = logs
+		cfg.relayed = instances[0].fetcher
 	}
 	srv := newMetricsServer(cfg.expose, newMetricsHandler(holder, cfg, perInstanceIntervals(instances)))
 	if err := configureExposeServer(srv, cfg); err != nil {
