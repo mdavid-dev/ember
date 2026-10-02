@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/alexandre-daubois/ember/internal/exporter"
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/alexandre-daubois/ember/internal/instrumentation"
 	"github.com/alexandre-daubois/ember/pkg/plugin"
@@ -38,11 +40,20 @@ type config struct {
 	insecure      bool
 	metricsAuth   string
 	recorder      *instrumentation.Recorder
+	instSources   map[string]exporter.InstanceSource
+	logSource     exporter.LogSource
 	logListen     string
 	configPath    string
 	configDefault string
 	addrsFromFile bool
 	stdinLogs     bool
+	serveRemote   bool
+	exposeCert    string
+	exposeKey     string
+	exposeCA      string
+	remote        string
+	remoteAuth    string
+	remoteURL     *url.URL
 }
 
 func Run(args []string, version string) error {
@@ -84,6 +95,7 @@ Keybindings:
   ember --json --once                     # single JSON snapshot and exit
   ember --expose :9191                    # TUI + Prometheus endpoint
   ember --expose :9191 --daemon           # headless metrics exporter
+  ember --remote https://prod:9191        # TUI against a --serve-remote daemon
   ember --daemon --expose :9191 \
         --addr web1=https://web1.fr \
         --addr web2=https://web2.fr     # multi-instance daemon
@@ -100,6 +112,9 @@ Keybindings:
 				cfg.noColor = true
 			}
 			initLogger(&cfg)
+			if cfg.remote != "" {
+				return prepareRemote(cmd, &cfg)
+			}
 			if err := loadConfigFile(cmd, &cfg); err != nil {
 				return err
 			}
@@ -110,6 +125,10 @@ Keybindings:
 			defer cancel()
 			ctx, tCancel := contextWithTimeout(ctx, cfg.timeout)
 			defer tCancel()
+
+			if cfg.remote != "" {
+				return runRemote(ctx, &cfg, cmd.Version)
+			}
 
 			multi := len(cfg.addrs) >= 2
 
@@ -173,6 +192,12 @@ Keybindings:
 	f.StringVar(&cfg.metricsPrefix, "metrics-prefix", "", "Prefix for exported Prometheus metric names")
 	f.StringVar(&cfg.logFormat, "log-format", "text", "Log format for daemon/json modes (text or json)")
 	f.StringVar(&cfg.metricsAuth, "metrics-auth", "", "Basic auth for metrics endpoint (user:password)")
+	f.StringVar(&cfg.exposeCert, "expose-cert", "", "TLS certificate for the daemon's --expose server (requires --expose-key)")
+	f.StringVar(&cfg.exposeKey, "expose-key", "", "TLS private key for the daemon's --expose server (requires --expose-cert)")
+	f.StringVar(&cfg.exposeCA, "expose-client-ca", "", "CA that --expose clients must present a certificate from (mTLS)")
+	f.StringVar(&cfg.remote, "remote", "", "Run the TUI against an Ember daemon started with --serve-remote (e.g. https://prod:9191)")
+	f.StringVar(&cfg.remoteAuth, "remote-auth", "", "Basic auth for --remote (user:password)")
+	f.BoolVar(&cfg.serveRemote, "serve-remote", false, "Serve remote TUIs from the daemon (requires --daemon and --metrics-auth or --expose-client-ca)")
 	f.StringVar(&cfg.logListen, "log-listen", "", "Receive logs from Caddy via TCP, e.g. ':9210' or '127.0.0.1:9210'. Required when Caddy is on a remote host; auto-bound on a local loopback port otherwise.")
 	f.BoolVar(&cfg.stdinLogs, "stdin-logs", false, "Read Caddy logs directly from stdin instead of registering a net_writer")
 	f.BoolVar(&cfg.stdinLogs, "from-stdin", false, "Read Caddy logs directly from stdin instead of registering a net_writer (alias for --stdin-logs)")
@@ -227,6 +252,9 @@ var envBindings = map[string]string{
 	"log-listen":     "EMBER_LOG_LISTEN",
 	"config":         "EMBER_CONFIG",
 	"stdin-logs":     "EMBER_STDIN_LOGS",
+	"serve-remote":   "EMBER_SERVE_REMOTE",
+	"remote":         "EMBER_REMOTE",
+	"remote-auth":    "EMBER_REMOTE_AUTH",
 }
 
 // bindEnv applies EMBER_* and other supported variables (e.g. CADDY_API_URL)
@@ -375,6 +403,21 @@ func validate(cfg *config) error {
 		if cfg.expose == "" {
 			return fmt.Errorf("--metrics-auth requires --expose")
 		}
+	}
+	if (cfg.exposeCert == "") != (cfg.exposeKey == "") {
+		return fmt.Errorf("--expose-cert and --expose-key must be set together")
+	}
+	if cfg.exposeCA != "" && cfg.exposeCert == "" {
+		return fmt.Errorf("--expose-client-ca requires --expose-cert and --expose-key")
+	}
+	if cfg.exposeCert != "" && !cfg.daemon {
+		return fmt.Errorf("--expose-cert requires --daemon")
+	}
+	if cfg.serveRemote && !cfg.daemon {
+		return fmt.Errorf("--serve-remote requires --daemon")
+	}
+	if cfg.serveRemote && cfg.metricsAuth == "" && cfg.exposeCA == "" {
+		return fmt.Errorf("--serve-remote requires --metrics-auth or --expose-client-ca")
 	}
 	if cfg.metricsPrefix != "" && !isValidMetricPrefix(cfg.metricsPrefix) {
 		return fmt.Errorf("--metrics-prefix %q is not a valid Prometheus metric name prefix (allowed: letters, digits, underscores; must not start with a digit; e.g. \"my_app\")", cfg.metricsPrefix)
