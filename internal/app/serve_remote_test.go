@@ -347,6 +347,26 @@ func TestServeRemote_TracesASessionWithoutLogs(t *testing.T) {
 	assert.Contains(t, logs.String(), "path=/logs status=409", "the refusal of the logs is traced too")
 }
 
+func TestServeRemote_TracesTheConfigReads(t *testing.T) {
+	pki := writeTestPKI(t)
+	_, hf := newCountingAdmin(t)
+	url, logs := startRemoteServer(t, &config{exposeCert: pki.serverCert, exposeKey: pki.serverKey, exposeCA: pki.caFile, relayed: hf})
+	cert, err := tls.LoadX509KeyPair(pki.clientCert, pki.clientKey)
+	require.NoError(t, err)
+	client := tlsClient(pki.pool, cert)
+	t.Cleanup(client.CloseIdleConnections)
+
+	for _, path := range []string{"/caddy/config/", "/caddy/config/apps/http/servers", "/caddy/metrics"} {
+		assert.Equal(t, http.StatusOK, getWithAuth(t, client, url+path, "", ""), path)
+	}
+
+	require.Eventually(t, func() bool { return strings.Count(logs.String(), `msg="remote config read"`) == 2 }, 2*time.Second, 10*time.Millisecond)
+	out := logs.String()
+	assert.Contains(t, out, "path=/caddy/config/ client_cn=alice-laptop")
+	assert.Contains(t, out, "path=/caddy/config/apps/http/servers client_cn=alice-laptop")
+	assert.NotContains(t, out, "path=/caddy/metrics", "only Caddy's config is audited")
+}
+
 func TestServeRemote_ClientCARequiresCertificate(t *testing.T) {
 	pki := writeTestPKI(t)
 	url, logs := startRemoteServer(t, &config{

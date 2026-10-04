@@ -65,16 +65,20 @@ func traceRemote(next http.Handler, log *slog.Logger) http.Handler {
 		next.ServeHTTP(rec, r)
 		// Caddy's own 4xx answer a TUI read, e.g. a 400 for a config path it lacks.
 		daemonRefused := !relayed || rec.status == http.StatusUnauthorized || rec.status == http.StatusForbidden || rec.status == http.StatusMethodNotAllowed
+		var cn []any
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			cn = []any{"client_cn", r.TLS.PeerCertificates[0].Subject.CommonName}
+		}
 		if rec.status >= http.StatusBadRequest && rec.status < http.StatusInternalServerError && daemonRefused {
 			log.Warn("remote request refused", "remote_addr", r.RemoteAddr, "method", r.Method, "path", r.URL.Path, "status", rec.status)
 		}
 		// A TUI opens its session with its first /logs request, served or not.
 		if r.URL.Path == "/logs" && r.URL.Query().Get("after") == "-1" && rec.status != http.StatusUnauthorized && rec.status != http.StatusForbidden {
-			attrs := []any{"remote_addr", r.RemoteAddr, "user_agent", r.UserAgent()}
-			if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
-				attrs = append(attrs, "client_cn", r.TLS.PeerCertificates[0].Subject.CommonName)
-			}
-			log.Info("remote session opened", attrs...)
+			log.Info("remote session opened", append([]any{"remote_addr", r.RemoteAddr, "user_agent", r.UserAgent()}, cn...)...)
+		}
+		// Caddy's config may hold secrets: every read of it leaves a trace.
+		if rec.status == http.StatusOK && strings.HasPrefix(r.URL.Path, "/caddy/config/") {
+			log.Info("remote config read", append([]any{"remote_addr", r.RemoteAddr, "path", r.URL.Path}, cn...)...)
 		}
 	})
 }
