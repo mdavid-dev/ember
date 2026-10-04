@@ -34,11 +34,15 @@ func remotePreRun(t *testing.T, args ...string) error {
 
 func TestPrepareRemote_Incompatibilities(t *testing.T) {
 	for flag, args := range map[string][]string{
-		"--daemon":     {"--daemon", "--expose", ":9191"},
-		"--json":       {"--json"},
-		"--expose":     {"--expose", ":9191"},
-		"--log-listen": {"--log-listen", ":9210"},
-		"--stdin-logs": {"--stdin-logs"},
+		"--daemon":       {"--daemon", "--expose", ":9191"},
+		"--json":         {"--json"},
+		"--expose":       {"--expose", ":9191"},
+		"--log-listen":   {"--log-listen", ":9210"},
+		"--stdin-logs":   {"--stdin-logs"},
+		"--once":         {"--once"},
+		"--metrics-auth": {"--metrics-auth", "u:p"},
+		"--serve-remote": {"--serve-remote"},
+		"--expose-cert":  {"--expose-cert", "cert.pem"},
 	} {
 		err := remotePreRun(t, append([]string{"--remote", "https://prod:9191"}, args...)...)
 		require.Error(t, err, flag)
