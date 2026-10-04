@@ -308,10 +308,22 @@ func startRemoteLogs(rf *fetcher.RemoteFetcher, page *fetcher.RemoteLogs, refusa
 			}
 			page, err = rf.FetchLogs(ctx, next)
 		}
+		runtimeBuf.Append(remoteLogsStopped(err))
 	})
 	return func() {
 		cancel()
 		done.Wait()
+	}
+}
+
+// remoteLogsStopped tells the Logs tab, as the stdin source does, that no more
+// lines will come.
+func remoteLogsStopped(err error) fetcher.LogEntry {
+	return fetcher.LogEntry{
+		Timestamp: time.Now(),
+		Level:     "error",
+		Logger:    "ember.remote",
+		Message:   "remote log stream stopped: " + err.Error(),
 	}
 }
 

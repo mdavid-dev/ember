@@ -274,6 +274,29 @@ func TestRemoteLogs_ClientRetriesAfterAServerError(t *testing.T) {
 	assert.NotContains(t, src.seen()[1:], int64(-1), "only the first request opens the session")
 }
 
+func TestRemoteLogs_ClientMarksTheEndOfTheStream(t *testing.T) {
+	src := &recordingLogSource{buf: model.NewLogBuffer(0)}
+	src.buf.Append(fetcher.LogEntry{Logger: "admin.api", Message: "before the stop"})
+	logs := exporter.LogsHandler(src)
+	var requests atomic.Int32
+
+	uiCfg := remoteLogsAgainst(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) > 1 {
+			http.Error(w, "logs are not available: the daemon is stopping", http.StatusConflict)
+			return
+		}
+		logs.ServeHTTP(w, r)
+	}), 100*time.Millisecond)
+
+	require.Eventually(t, func() bool { return uiCfg.RuntimeLogBuffer.Len() == 2 }, 2*time.Second, 10*time.Millisecond)
+	last, _ := uiCfg.RuntimeLogBuffer.Since(1, 0)
+	assert.Equal(t, "ember.remote", last[0].Logger)
+	assert.Equal(t, "error", last[0].Level)
+	assert.Contains(t, last[0].Message, "remote log stream stopped: daemon answered 409 Conflict: logs are not available: the daemon is stopping")
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, int32(2), requests.Load(), "a refusal ends the polling")
+}
+
 func TestRemoteLogs_ClientStopsOnARefusal(t *testing.T) {
 	src := &recordingLogSource{err: errors.New("logs are not available on a multi-instance daemon")}
 
