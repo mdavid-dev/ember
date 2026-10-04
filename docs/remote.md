@@ -9,7 +9,7 @@ EMBER_METRICS_AUTH=ops:secret ember --daemon --expose :9191 --serve-remote \
   --expose-cert cert.pem --expose-key key.pem
 ```
 
-`--serve-remote` adds `GET /logs` and `GET /certificates` to the `--expose` server, and relays under `/caddy/` the read requests of the TUI to Caddy's admin API. It refuses any other method or path. It requires `--metrics-auth`, or `--expose-client-ca` for mTLS, and a single `--addr`. Without `--expose-cert` the daemon warns that traffic is in clear text: only do this behind a TLS proxy. `/metrics` shares the same listener, TLS and credentials.
+`--serve-remote` adds `GET /logs` and `GET /certificates` to the `--expose` server, and relays under `/caddy/` the read requests of the TUI to Caddy's admin API. It refuses any other method or path. It requires `--metrics-auth`, or `--expose-client-ca` for mTLS, and a single `--addr`. Without `--expose-cert` the daemon warns that traffic is in clear text: only do this behind a TLS proxy. `/metrics` shares the same listener, TLS and credentials: under `--expose-client-ca`, Prometheus must present a client certificate too.
 
 Remote sessions, refused requests, and the installation and removal of the log sinks are logged by the daemon.
 
@@ -17,6 +17,12 @@ Remote sessions, refused requests, and the installation and removal of the log s
 
 ```bash
 EMBER_REMOTE_AUTH=ops:secret ember --remote https://prod:9191 --ca-cert ca.pem
+```
+
+Against a daemon started with `--expose-client-ca`, present a certificate signed by that CA instead. If the daemon also sets `--metrics-auth`, pass both.
+
+```bash
+ember --remote https://prod:9191 --ca-cert ca.pem --client-cert me.pem --client-key me-key.pem
 ```
 
 `--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. The TUI reads Caddy as it does over SSH, at its own `--interval`, through the daemon. `--remote` exits at once when the daemon cannot be reached or refuses the credentials; with Caddy down behind a reachable daemon, the TUI starts and shows the outage as over SSH. Worker restart is not available remotely. The Certificates tab shows what the daemon sees: the daemon dials the TLS hosts it monitors.
