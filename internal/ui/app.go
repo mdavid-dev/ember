@@ -47,12 +47,9 @@ type Config struct {
 	RouteAggregator  *model.RouteAggregator
 	LogSource        string // path or description; empty when no source is known
 	Remote           string // daemon host:port in a remote session
-	LogsRefusal      string // why the daemon refused the logs of a remote session
 }
 
 type tab int
-
-const remoteLogsUnavailable = "Logs are not available in a remote session."
 
 const (
 	tabCaddy tab = iota
@@ -386,14 +383,6 @@ func (a *App) View() string {
 				contentList = greyStyle.Render(" " + pt.group.err.Error())
 			}
 		}
-	}
-
-	if a.activeTab == tabLogs && a.config.Remote != "" && a.logBuffer == nil {
-		msg := remoteLogsUnavailable
-		if a.config.LogsRefusal != "" {
-			msg += "\n " + sanitizeControl(a.config.LogsRefusal)
-		}
-		contentList = greyStyle.Render(" " + msg)
 	}
 
 	// Built after the content: rendering the By Route table is what decides

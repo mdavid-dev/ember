@@ -35,6 +35,8 @@ The Logs tab works in a remote session, with the same effect on Caddy as a local
 - 30 seconds after the last remote TUI stopped asking, or when the daemon stops, it removes the sinks and the `logs` blocks it added. An empty `logging.logs` section it had to create stays, as it does after a local TUI. Several remote TUIs share one installation.
 - Without a remote TUI, the daemon changes nothing in Caddy.
 
+When the daemon cannot serve the logs, or stops serving them during a session, an `ember.remote` error line in the runtime logs says why.
+
 The daemon listens for Caddy on a free loopback port when Caddy's admin API is on localhost. Otherwise start it with `--log-listen` and an address Caddy can reach: logs travel from Caddy to the daemon in clear text, as they do to a local TUI.
 
 ## Security

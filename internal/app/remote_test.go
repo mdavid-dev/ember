@@ -304,8 +304,11 @@ func TestRemoteLogs_ClientStopsOnARefusal(t *testing.T) {
 
 	uiCfg := remoteLogsAgainst(t, exporter.LogsHandler(src), 100*time.Millisecond)
 
-	assert.Nil(t, uiCfg.LogBuffer, "the tab keeps its message")
-	assert.Contains(t, uiCfg.LogsRefusal, "multi-instance daemon")
+	require.NotNil(t, uiCfg.RuntimeLogBuffer, "the tab shows why, not the hint of a local TUI")
+	entries, _ := uiCfg.RuntimeLogBuffer.Since(0, 0)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "ember.remote", entries[0].Logger)
+	assert.Contains(t, entries[0].Message, "multi-instance daemon")
 	assert.Len(t, src.seen(), 1)
 }
 

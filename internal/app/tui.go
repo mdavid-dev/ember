@@ -279,12 +279,12 @@ func newLogBuffers() (*model.LogBuffer, *model.LogBuffer, *model.RouteAggregator
 }
 
 func startRemoteLogs(rf *fetcher.RemoteFetcher, page *fetcher.RemoteLogs, refusal error, uiCfg *ui.Config) func() {
-	if refusal != nil {
-		uiCfg.LogsRefusal = refusal.Error()
-		return func() {}
-	}
 	accessBuf, runtimeBuf, routeAgg, store := newLogBuffers()
 	uiCfg.LogBuffer, uiCfg.RuntimeLogBuffer, uiCfg.RouteAggregator = accessBuf, runtimeBuf, routeAgg
+	if refusal != nil {
+		runtimeBuf.Append(remoteLogsStopped(refusal))
+		return func() {}
+	}
 	// At least every second, whatever the interval, so the daemon's lease
 	// never lapses.
 	ticker := time.NewTicker(min(max(uiCfg.Interval, minInterval), time.Second))

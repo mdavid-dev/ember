@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
-	"github.com/alexandre-daubois/ember/internal/model"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,31 +27,4 @@ func remoteApp(t *testing.T, remote string, opts ...func(*Config)) *App {
 func TestRemote_HeaderBadge(t *testing.T) {
 	assert.Contains(t, stripANSI(remoteApp(t, "prod:9191").View()), "REMOTE prod:9191")
 	assert.NotContains(t, stripANSI(remoteApp(t, "").View()), "REMOTE")
-}
-
-func TestRemote_LogsTabShowsTheDaemonLogs(t *testing.T) {
-	app := remoteApp(t, "prod:9191", func(c *Config) {
-		c.LogBuffer, c.RuntimeLogBuffer, c.RouteAggregator = model.NewLogBuffer(0), model.NewLogBuffer(0), model.NewRouteAggregator()
-	})
-	app.runtimeLogBuffer.Append(fetcher.LogEntry{Timestamp: time.Now(), Level: "info", Logger: "admin.api", Message: "remote-probe"})
-	app.switchTab(tabLogs)
-
-	out := stripANSI(app.View())
-
-	assert.NotContains(t, out, "not available")
-	assert.Contains(t, out, "remote-probe")
-}
-
-func TestRemote_LogsTabNamesTheRefusal(t *testing.T) {
-	app := remoteApp(t, "prod:9191", func(c *Config) {
-		c.LogsRefusal = "daemon answered 404 Not Found: logs are not available: the daemon is stopping\a"
-	})
-	app.switchTab(tabLogs)
-
-	out := app.View()
-
-	assert.Contains(t, stripANSI(out), "Logs are not available in a remote session.")
-	assert.Contains(t, stripANSI(out), "logs are not available: the daemon is stopping")
-	assert.NotContains(t, stripANSI(out), "--log-listen", "not the hint of a local TUI")
-	assert.NotContains(t, out, "\a", "the daemon's reason is neutralised")
 }
