@@ -341,10 +341,10 @@ func TestServeRemote_TracesASessionWithoutLogs(t *testing.T) {
 	client := tlsClient(pki.pool)
 	t.Cleanup(client.CloseIdleConnections)
 
-	assert.Equal(t, http.StatusNotFound, getWithAuth(t, client, url+"/logs?after=-1", "remote-user", "s3cret-pass"))
+	assert.Equal(t, http.StatusConflict, getWithAuth(t, client, url+"/logs?after=-1", "remote-user", "s3cret-pass"))
 
 	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "remote session opened") }, 2*time.Second, 10*time.Millisecond)
-	assert.Contains(t, logs.String(), "path=/logs status=404", "the refusal of the logs is traced too")
+	assert.Contains(t, logs.String(), "path=/logs status=409", "the refusal of the logs is traced too")
 }
 
 func TestServeRemote_ClientCARequiresCertificate(t *testing.T) {

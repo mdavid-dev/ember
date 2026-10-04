@@ -23,7 +23,7 @@ func LogsHandler(src LogSource) http.HandlerFunc {
 		}
 		entries, next, err := src.Since(after, fetcher.MaxRemoteLogs)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

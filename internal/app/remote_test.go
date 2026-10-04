@@ -336,7 +336,8 @@ func TestRunRemote_ExitsBeforeTheTUI(t *testing.T) {
 
 func TestRemoteFatal(t *testing.T) {
 	assert.False(t, remoteFatal(nil))
-	assert.False(t, remoteFatal(fetcher.RefusedError{Status: http.StatusNotFound}), "the logs alone are refused: the TUI starts")
+	assert.False(t, remoteFatal(fetcher.RefusedError{Status: http.StatusConflict}), "the logs alone are refused: the TUI starts")
+	assert.True(t, remoteFatal(fetcher.RefusedError{Status: http.StatusNotFound}), "no --serve-remote daemon there")
 	assert.True(t, remoteFatal(fetcher.RefusedError{Status: http.StatusUnauthorized}))
 	assert.True(t, remoteFatal(errors.New("daemon answered 502 Bad Gateway")))
 }
