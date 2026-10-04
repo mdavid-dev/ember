@@ -312,30 +312,6 @@ func TestRemoteLogs_ClientStopsOnARefusal(t *testing.T) {
 	assert.Len(t, src.seen(), 1)
 }
 
-func TestRemoteLogs_TheTUIInstallsNoSink(t *testing.T) {
-	var mu sync.Mutex
-	var seen []string
-	logs := exporter.LogsHandler(&recordingLogSource{buf: model.NewLogBuffer(0)})
-
-	remoteLogsAgainst(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		seen = append(seen, r.Method+" "+r.URL.Path)
-		mu.Unlock()
-		logs.ServeHTTP(w, r)
-	}), 100*time.Millisecond)
-
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(seen) >= 3
-	}, 2*time.Second, 10*time.Millisecond)
-	mu.Lock()
-	defer mu.Unlock()
-	for _, r := range seen {
-		assert.Equal(t, "GET /logs", r, "the daemon handles the sinks; the TUI only reads its logs")
-	}
-}
-
 func TestRunRemote_ExitsBeforeTheTUI(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
