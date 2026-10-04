@@ -9,9 +9,9 @@ EMBER_METRICS_AUTH=ops:secret ember --daemon --expose :9191 --serve-remote \
   --expose-cert cert.pem --expose-key key.pem
 ```
 
-`--serve-remote` adds `GET /logs` and `GET /certificates` to the `--expose` server, and relays under `/caddy/` the read requests of the TUI to Caddy's admin API. It refuses any other method or path. It requires `--metrics-auth`, or `--expose-client-ca` for mTLS, and a single `--addr`. Without `--expose-cert` the daemon warns that traffic is in clear text: only do this behind a TLS proxy. `/metrics` shares the same listener, TLS and credentials: under `--expose-client-ca`, Prometheus must present a client certificate too.
+`--serve-remote` adds `GET /logs` and `GET /certificates` to the `--expose` server, and relays under `/caddy/` the read requests of the TUI to Caddy's admin API. It refuses any other method or path. It requires `--metrics-auth`, or `--expose-client-ca` for mTLS, and a single `--addr`. Without `--expose-cert` the daemon warns that traffic is in clear text: only do this behind a TLS proxy. `/metrics` shares the same listener, TLS and credentials: under `--expose-client-ca`, Prometheus must present a client certificate too. So must anything that calls `/healthz`: a Kubernetes probe without a client certificate fails. `--expose-cert` and `--expose-key` are read once at startup; SIGHUP only reloads the TLS material Ember uses towards Caddy, so restart the daemon to change its certificate.
 
-Remote sessions, refused requests, and the installation and removal of the log sinks are logged by the daemon.
+Remote sessions, refused requests, reads of Caddy's configuration, and the installation and removal of the log sinks are logged by the daemon.
 
 ## TUI
 
@@ -25,7 +25,7 @@ Against a daemon started with `--expose-client-ca`, present a certificate signed
 ember --remote https://prod:9191 --ca-cert ca.pem --client-cert me.pem --client-key me-key.pem
 ```
 
-`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. The TUI reads Caddy as it does over SSH, at its own `--interval`, through the daemon. `--remote` exits at once when the daemon cannot be reached, refuses the credentials, or was not started with `--serve-remote`; with Caddy down behind a reachable daemon, the TUI starts and shows the outage as over SSH. Worker restart is not available remotely. The Certificates tab shows what the daemon sees: the daemon dials the TLS hosts it monitors.
+`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. The TUI reads Caddy as it does over SSH, at its own `--interval`, through the daemon. `--remote` exits at once when the daemon cannot be reached, refuses the credentials, or was not started with `--serve-remote`; with Caddy down behind a reachable daemon, the TUI starts and shows the outage as over SSH. Worker restart is not available remotely, and plugins are not loaded in a remote session. The Certificates tab shows what the daemon sees: the daemon dials the TLS hosts it monitors.
 
 ## Logs
 
@@ -48,3 +48,9 @@ The credentials also give access to Caddy's whole configuration, which may hold 
 ## Try it
 
 In `local/remote/`: `make certs && make up`, then `make start`, and `make traffic` in another terminal.
+
+## See Also
+
+- [CLI Reference](cli-reference.md)
+- [Logs](logs.md)
+- [Prometheus Export](prometheus-export.md)

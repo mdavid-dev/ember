@@ -27,7 +27,7 @@ ember [flags]
 | `--insecure`       | bool | `false` | Skip TLS certificate verification |
 | `-f`, `--config`   | string | `.ember.toml` | Path to the Ember config file (TOML). Read only when neither `--addr` nor `EMBER_ADDR` is set. See [Config file](#config-file). |
 | `--metrics-auth`   | string | _(none)_ | Basic auth for the metrics endpoint (`user:password`). Requires `--expose`. See [Prometheus Export](prometheus-export.md). |
-| `--expose-cert`    | string | _(none)_ | TLS certificate for the daemon's `--expose` server, with `--expose-key` |
+| `--expose-cert`    | string | _(none)_ | TLS certificate for the daemon's `--expose` server, with `--expose-key`. Requires `--daemon`. |
 | `--expose-key`     | string | _(none)_ | TLS private key for the daemon's `--expose` server |
 | `--expose-client-ca` | string | _(none)_ | Require client certificates from this CA on the `--expose` server (mTLS) |
 | `--serve-remote`   | bool | `false` | Serve remote TUIs from the daemon. See [Remote TUI](remote.md). |
