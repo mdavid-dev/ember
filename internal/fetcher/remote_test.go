@@ -116,3 +116,13 @@ func TestRemoteFetcher_TheDaemonDialsTheTLSHosts(t *testing.T) {
 	require.Len(t, daemon.requests(), 1, "the TUI dials nothing itself")
 	assert.Equal(t, "/certificates", daemon.requests()[0].path)
 }
+
+func TestRemoteFetcher_RefusesToRestartWorkers(t *testing.T) {
+	daemon := &recordingServer{next: http.NotFoundHandler()}
+	f := newRemoteTest(t, daemon, "")
+
+	err := f.RestartWorkers(context.Background())
+
+	require.EqualError(t, err, "worker restart is not available in a remote session")
+	assert.Empty(t, daemon.requests(), "nothing reaches the daemon")
+}

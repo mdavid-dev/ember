@@ -52,10 +52,7 @@ type Config struct {
 
 type tab int
 
-const (
-	remoteLogsUnavailable    = "Logs are not available in a remote session."
-	remoteRestartUnavailable = "Worker restart is not available in a remote session."
-)
+const remoteLogsUnavailable = "Logs are not available in a remote session."
 
 const (
 	tabCaddy tab = iota

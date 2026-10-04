@@ -6,7 +6,6 @@ import (
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
 	"github.com/alexandre-daubois/ember/internal/model"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,26 +25,9 @@ func remoteApp(t *testing.T, remote string, opts ...func(*Config)) *App {
 	return app
 }
 
-func pressR(app *App) {
-	_, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
-}
-
 func TestRemote_HeaderBadge(t *testing.T) {
 	assert.Contains(t, stripANSI(remoteApp(t, "prod:9191").View()), "REMOTE prod:9191")
 	assert.NotContains(t, stripANSI(remoteApp(t, "").View()), "REMOTE")
-}
-
-func TestRemote_RestartKeySkipsTheConfirmation(t *testing.T) {
-	for _, mode := range []viewMode{viewList, viewDetail} {
-		app := remoteApp(t, "prod:9191")
-		app.switchTab(tabFrankenPHP)
-		app.mode = mode
-
-		pressR(app)
-
-		assert.Equal(t, mode, app.mode)
-		assert.Equal(t, "Worker restart is not available in a remote session.", app.status)
-	}
 }
 
 func TestRemote_LogsTabShowsTheDaemonLogs(t *testing.T) {

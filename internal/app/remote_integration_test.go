@@ -62,7 +62,6 @@ func TestIntegration_RemoteRelay(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
-	require.ErrorContains(t, remote.RestartWorkers(ctx), "HTTP 405")
 
 	after, err := direct.FetchConfig(ctx)
 	require.NoError(t, err)

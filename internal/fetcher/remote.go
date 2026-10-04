@@ -52,6 +52,11 @@ func (f *RemoteFetcher) DialTLSCertificates(ctx context.Context, _ []string) []C
 	return certs
 }
 
+// RestartWorkers sends nothing: a remote session is read-only.
+func (f *RemoteFetcher) RestartWorkers(context.Context) error {
+	return errors.New("worker restart is not available in a remote session")
+}
+
 // remoteAuth signs at the transport: HTTPFetcher builds its requests itself.
 type remoteAuth struct {
 	next                        http.RoundTripper

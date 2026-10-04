@@ -172,7 +172,6 @@ caddy_http_request_duration_seconds_count{server="srv0"} %d
 		state.Update(snap)
 		return state.Derived.RPS > 0
 	}, 5*time.Second, 150*time.Millisecond, "the TUI's own fetcher reads Caddy through the daemon")
-	require.ErrorContains(t, f.RestartWorkers(ctx), "HTTP 405")
 
 	mu.Lock()
 	defer mu.Unlock()
