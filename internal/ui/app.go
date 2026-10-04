@@ -46,6 +46,7 @@ type Config struct {
 	RuntimeLogBuffer *model.LogBuffer
 	RouteAggregator  *model.RouteAggregator
 	LogSource        string // path or description; empty when no source is known
+	Remote           string // daemon host:port in a remote session
 }
 
 type tab int
@@ -255,7 +256,7 @@ func (a *App) View() string {
 	}
 	listWidth := a.width - panelWidth
 
-	dashboard := renderDashboard(&a.state, listWidth, a.config.Version, lastN(a.history.rps, sparklineSize), lastN(a.history.cpu, sparklineSize), a.stale, a.paused, a.hasFrankenPHP)
+	dashboard := renderDashboard(&a.state, listWidth, a.config.Version, a.config.Remote, lastN(a.history.rps, sparklineSize), lastN(a.history.cpu, sparklineSize), a.stale, a.paused, a.hasFrankenPHP)
 	counts := make(map[tab]string)
 	if a.state.Current != nil {
 		if hostCount := len(a.state.HostDerived); hostCount > 0 {
