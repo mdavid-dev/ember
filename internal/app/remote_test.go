@@ -153,11 +153,10 @@ caddy_http_request_duration_seconds_count{server="srv0"} %d
 		require.NoError(t, <-done)
 	})
 
-	tlsCfg, err := fetcher.BuildTLSConfig(fetcher.TLSOptions{CACert: pki.caFile})
-	require.NoError(t, err)
 	u, err := url.Parse("https://" + cfg.expose)
 	require.NoError(t, err)
-	f := fetcher.NewRemoteFetcher(u, "remote:s3cret", tlsCfg, "test")
+	f := fetcher.NewRemoteFetcher(u, "remote:s3cret", "test")
+	require.NoError(t, configureTLS(f.HTTPFetcher, fetcher.TLSOptions{CACert: pki.caFile}))
 	t.Cleanup(f.CloseIdleConnections)
 
 	var state model.State
@@ -208,7 +207,7 @@ func remoteLogsAgainst(t *testing.T, h http.Handler, interval time.Duration) *ui
 	t.Cleanup(srv.Close)
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
-	f := fetcher.NewRemoteFetcher(u, "", nil, "test")
+	f := fetcher.NewRemoteFetcher(u, "", "test")
 	t.Cleanup(f.CloseIdleConnections)
 	cfg := &config{remoteURL: u}
 	cfg.remotePage, cfg.logsRefusal = f.FetchLogs(context.Background(), -1)

@@ -2,7 +2,6 @@ package fetcher
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,9 +36,8 @@ type RemoteFetcher struct {
 }
 
 // NewRemoteFetcher takes auth as "user:password" or empty.
-func NewRemoteFetcher(base *url.URL, auth string, tlsCfg *tls.Config, version string) *RemoteFetcher {
+func NewRemoteFetcher(base *url.URL, auth, version string) *RemoteFetcher {
 	hf := NewHTTPFetcher(base.JoinPath("caddy").String(), 0)
-	hf.SetTLSConfig(tlsCfg)
 	user, pass, _ := strings.Cut(auth, ":")
 	hf.httpClient.Transport = &remoteAuth{next: hf.transport, host: base.Host, user: user, pass: pass, userAgent: "ember/" + version}
 	return &RemoteFetcher{HTTPFetcher: hf, base: base}

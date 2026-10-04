@@ -32,7 +32,7 @@ func TestIntegration_RemoteRelay(t *testing.T) {
 	t.Cleanup(daemon.Close)
 	u, err := url.Parse(daemon.URL)
 	require.NoError(t, err)
-	remote := fetcher.NewRemoteFetcher(u, "remote:s3cret", nil, "test")
+	remote := fetcher.NewRemoteFetcher(u, "remote:s3cret", "test")
 	t.Cleanup(remote.CloseIdleConnections)
 
 	for range 20 {

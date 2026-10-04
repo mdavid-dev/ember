@@ -19,7 +19,7 @@ func newRemoteTest(t *testing.T, h http.Handler, auth string) *RemoteFetcher {
 	t.Cleanup(srv.Close)
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
-	f := NewRemoteFetcher(u, auth, nil, "test")
+	f := NewRemoteFetcher(u, auth, "test")
 	t.Cleanup(f.CloseIdleConnections)
 	return f
 }

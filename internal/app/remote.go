@@ -47,11 +47,10 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 }
 
 func runRemote(ctx context.Context, cfg *config, version string) error {
-	tlsCfg, err := fetcher.BuildTLSConfig(effectiveTLS(addrSpec{}, cfg))
-	if err != nil {
+	f := fetcher.NewRemoteFetcher(cfg.remoteURL, cfg.remoteAuth, version)
+	if err := configureTLS(f.HTTPFetcher, effectiveTLS(addrSpec{}, cfg)); err != nil {
 		return err
 	}
-	f := fetcher.NewRemoteFetcher(cfg.remoteURL, cfg.remoteAuth, tlsCfg, version)
 	defer f.CloseIdleConnections()
 	// The first /logs request opens the session before the TUI does.
 	cfg.remotePage, cfg.logsRefusal = f.FetchLogs(ctx, -1)
