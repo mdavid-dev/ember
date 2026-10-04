@@ -248,7 +248,7 @@ func startNetListener(addr string, f fetcher.Fetcher, uiCfg *ui.Config) (func(),
 	}
 
 	accessBuf, runtimeBuf, routeAgg, store := newLogBuffers()
-	advertiseAddr, cleanup, ok := receiveCaddyLogs(addr, hf, store)
+	advertiseAddr, cleanup, ok := receiveCaddyLogs(addr, hf, store, warnIfPublicListener)
 	if !ok {
 		return cleanup, false
 	}
@@ -328,8 +328,9 @@ func remoteLogsStopped(err error) fetcher.LogEntry {
 }
 
 // receiveCaddyLogs is startNetListener without the UI, shared with a
-// --serve-remote daemon; it returns the address given to Caddy.
-func receiveCaddyLogs(addr string, hf *fetcher.HTTPFetcher, onBatch func([]fetcher.LogEntry)) (string, func(), bool) {
+// --serve-remote daemon; it returns the address given to Caddy. warn gets the
+// address bound, which the daemon reports once through its logger instead.
+func receiveCaddyLogs(addr string, hf *fetcher.HTTPFetcher, onBatch func([]fetcher.LogEntry), warn func(string)) (string, func(), bool) {
 	noop := func() {}
 
 	// Try to bind directly on the requested address. When the host part
@@ -352,7 +353,7 @@ func receiveCaddyLogs(addr string, hf *fetcher.HTTPFetcher, onBatch func([]fetch
 	if advertiseAddr == "" {
 		advertiseAddr = ln.Addr()
 	}
-	warnIfPublicListener(ln.Addr())
+	warn(ln.Addr())
 
 	// PUT on the sink endpoint is idempotent: Caddy replaces an
 	// existing sink with the new definition. A stale entry left by a prior

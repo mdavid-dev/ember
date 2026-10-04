@@ -442,6 +442,28 @@ func TestRemoteLogs_LeaseInstallsThenRestoresCaddy(t *testing.T) {
 	assert.Equal(t, 4, api.putCount(), "the next request opens a new session")
 }
 
+func TestRemoteLogs_WarnsOnceThroughTheLogger(t *testing.T) {
+	api := newFakeCaddyLogAPI(t)
+	t.Cleanup(api.srv.Close)
+	logs := &syncBuffer{}
+	cfg := &config{addrs: []addrSpec{{url: api.srv.URL}}, logListen: "0.0.0.0:0", logger: slog.New(slog.NewTextHandler(logs, nil))}
+
+	stderr := captureStderr(t, func() {
+		l := newRemoteLogs(cfg, fetcher.NewHTTPFetcher(api.srv.URL, 0))
+		defer l.Close()
+		for range 2 {
+			_, _, err := l.Since(-1, 0)
+			require.NoError(t, err)
+			l.mu.Lock()
+			l.end()
+			l.mu.Unlock()
+		}
+	})
+
+	assert.Empty(t, stderr, "nothing outside the daemon's logger, lease after lease")
+	assert.Equal(t, 1, strings.Count(logs.String(), "log listener is not on loopback"))
+}
+
 func TestRemoteLogs_UnavailableWithoutLogListen(t *testing.T) {
 	cfg := &config{addrs: []addrSpec{{url: "http://prod.example.com:2019"}}}
 

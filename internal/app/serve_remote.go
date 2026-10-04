@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -114,6 +115,10 @@ func newRemoteLogs(cfg *config, hf *fetcher.HTTPFetcher) *remoteLogs {
 	l := &remoteLogs{lease: remoteLogsLease, log: cfg.logger}
 	if addr, ok := logListenAddr(cfg); ok {
 		l.hf, l.addr, l.buf = hf, addr, model.NewLogBuffer(0)
+		// As warnIfPublicListener, before any bind: a host name is not loopback.
+		if host, _, err := net.SplitHostPort(addr); err == nil && host != "localhost" && !net.ParseIP(host).IsLoopback() {
+			cfg.logger.Warn("log listener is not on loopback: access log contents will be readable by any host that can reach this port", "listen", addr)
+		}
 	} else {
 		l.unavailable = errors.New("logs are not available: Caddy is on another host and the daemon has no --log-listen")
 	}
@@ -133,7 +138,7 @@ func (l *remoteLogs) Since(after int64, limit int) ([]fetcher.LogEntry, int64, e
 			for _, e := range batch {
 				l.buf.Append(e)
 			}
-		})
+		}, func(string) {})
 		if !ok {
 			return nil, 0, fmt.Errorf("logs are not available: cannot listen on %s", l.addr)
 		}
