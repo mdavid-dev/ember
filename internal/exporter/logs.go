@@ -1,7 +1,6 @@
 package exporter
 
 import (
-	"cmp"
 	"net/http"
 	"strconv"
 
@@ -16,7 +15,7 @@ type LogSource interface {
 // LogsHandler serves a page of the remote session's logs from an after cursor.
 func LogsHandler(src LogSource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		after, err := strconv.ParseInt(cmp.Or(r.URL.Query().Get("after"), "-1"), 10, 64)
+		after, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 		if err != nil || after < -1 {
 			http.Error(w, "after must be a cursor returned by /logs", http.StatusBadRequest)
 			return

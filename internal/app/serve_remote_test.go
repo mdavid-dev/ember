@@ -229,7 +229,7 @@ func TestNewMetricsHandler_RemoteRoutesNeedServeRemote(t *testing.T) {
 	for _, serveRemote := range []bool{false, true} {
 		cfg := &config{interval: time.Second, serveRemote: serveRemote, logSource: stubLogSource{}, relayed: hf}
 		h := newMetricsHandler(freshHolder(), cfg, nil)
-		for _, path := range []string{"/logs", "/caddy/config/", "/certificates"} {
+		for _, path := range []string{"/logs?after=-1", "/caddy/config/", "/certificates"} {
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 			want := http.StatusNotFound
@@ -496,7 +496,7 @@ func TestRunDaemon_ServesLogsAndRestoresCaddyOnShutdown(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, instances, cfg, nil) }()
 
-	req, err := http.NewRequest(http.MethodGet, "http://"+cfg.expose+"/logs", nil)
+	req, err := http.NewRequest(http.MethodGet, "http://"+cfg.expose+"/logs?after=-1", nil)
 	require.NoError(t, err)
 	req.SetBasicAuth("remote", "s3cret")
 	require.Eventually(t, func() bool {
