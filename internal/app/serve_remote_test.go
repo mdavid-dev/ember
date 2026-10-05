@@ -300,23 +300,27 @@ func TestServeRemote_TracesTheRelayRefusals(t *testing.T) {
 	t.Cleanup(client.CloseIdleConnections)
 
 	assert.Equal(t, http.StatusForbidden, getWithAuth(t, client, url+"/caddy/debug/pprof/", "remote-user", "s3cret-pass"))
-	req, err := http.NewRequest(http.MethodPost, url+"/caddy/frankenphp/workers/restart", nil)
-	require.NoError(t, err)
-	req.SetBasicAuth("remote-user", "s3cret-pass")
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	_ = resp.Body.Close()
-	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	for _, path := range []string{"/caddy/frankenphp/workers/restart", "/logs?after=-1"} {
+		req, err := http.NewRequest(http.MethodPost, url+path, nil)
+		require.NoError(t, err)
+		req.SetBasicAuth("remote-user", "s3cret-pass")
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, path)
+	}
 	assert.Equal(t, http.StatusNotFound, getWithAuth(t, client, url+"/caddy/frankenphp/threads", "remote-user", "s3cret-pass"))
 	assert.Equal(t, http.StatusBadRequest, getWithAuth(t, client, url+"/caddy/config/apps/pki/certificate_authorities", "remote-user", "s3cret-pass"))
 
 	assert.Equal(t, []string{"GET /frankenphp/threads", "GET /config/apps/pki/certificate_authorities"}, admin.requests(), "only the TUI reads reached Caddy")
 	require.Eventually(t, func() bool {
-		return strings.Count(logs.String(), `msg="remote request refused"`) == 2
+		return strings.Count(logs.String(), `msg="remote request refused"`) == 3
 	}, 2*time.Second, 10*time.Millisecond)
 	out := logs.String()
 	assert.Contains(t, out, "method=GET path=/caddy/debug/pprof/ status=403")
 	assert.Contains(t, out, "method=POST path=/caddy/frankenphp/workers/restart status=405")
+	assert.Contains(t, out, "method=POST path=/logs status=405")
+	assert.NotContains(t, out, "remote session opened", "a refused POST opens no session")
 	assert.NotContains(t, out, "/caddy/frankenphp/threads", "Caddy's own 404 is an answer, not a refusal")
 	assert.NotContains(t, out, "/caddy/config/apps/pki", "nor is its 400 for a PKI app it does not have")
 }
