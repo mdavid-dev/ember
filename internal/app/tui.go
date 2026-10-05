@@ -35,9 +35,6 @@ func runTUI(f fetcher.Fetcher, cfg *config, interval time.Duration, hasFrankenPH
 		HasFrankenPHP: hasFrankenPHP,
 		Plugins:       plugins,
 	}
-	if cfg.remoteURL != nil {
-		uiCfg.Remote = cfg.remoteURL.Host
-	}
 
 	// Bubble Tea intercepts SIGINT, but not SIGTERM. Without this trap a
 	// `systemctl stop` or `kill <pid>` would skip our defer chain (and leave
