@@ -72,7 +72,7 @@ func traceRemote(next http.Handler, log *slog.Logger) http.Handler {
 			cn = []any{"client_cn", r.TLS.PeerCertificates[0].Subject.CommonName}
 		}
 		if rec.status >= http.StatusBadRequest && rec.status < http.StatusInternalServerError && daemonRefused {
-			log.Warn("remote request refused", "remote_addr", r.RemoteAddr, "method", r.Method, "path", r.URL.Path, "status", rec.status)
+			log.Warn("remote request refused", append([]any{"remote_addr", r.RemoteAddr, "method", r.Method, "path", r.URL.Path, "status", rec.status}, cn...)...)
 		}
 		// A TUI opens its session with its first /logs request, served or not:
 		// after is read as LogsHandler reads it.

@@ -362,12 +362,14 @@ func TestServeRemote_TracesTheConfigReads(t *testing.T) {
 	for _, path := range []string{"/caddy/config/", "/caddy/config/apps/http/servers", "/caddy/metrics"} {
 		assert.Equal(t, http.StatusOK, getWithAuth(t, client, url+path, "", ""), path)
 	}
+	assert.Equal(t, http.StatusForbidden, getWithAuth(t, client, url+"/caddy/load", "", ""))
 
 	require.Eventually(t, func() bool { return strings.Count(logs.String(), `msg="remote config read"`) == 2 }, 2*time.Second, 10*time.Millisecond)
 	out := logs.String()
 	assert.Contains(t, out, "path=/caddy/config/ client_cn=alice-laptop")
 	assert.Contains(t, out, "path=/caddy/config/apps/http/servers client_cn=alice-laptop")
 	assert.NotContains(t, out, "path=/caddy/metrics", "only Caddy's config is audited")
+	assert.Contains(t, out, "path=/caddy/load status=403 client_cn=alice-laptop", "a refusal names the client too")
 }
 
 func TestServeRemote_ClientCARequiresCertificate(t *testing.T) {

@@ -11,7 +11,7 @@ EMBER_METRICS_AUTH=ops:secret ember --daemon --expose :9191 --serve-remote \
 
 `--serve-remote` adds `GET /logs` and `GET /certificates` to the `--expose` server, and relays under `/caddy/` the read requests of the TUI to Caddy's admin API. It refuses any other method or path. It requires `--metrics-auth`, or `--expose-client-ca` for mTLS, and a single `--addr`. Without `--expose-cert` the daemon warns that traffic is in clear text: only do this behind a TLS proxy. `/metrics` shares the same listener, TLS and credentials: under `--expose-client-ca`, Prometheus must present a client certificate too. So must anything that calls `/healthz`: a Kubernetes probe without a client certificate fails. `--expose-cert` and `--expose-key` are read once at startup; SIGHUP only reloads the TLS material Ember uses towards Caddy, so restart the daemon to change its certificate.
 
-Remote sessions, refused requests, reads of Caddy's configuration, and the installation and removal of the log sinks are logged by the daemon.
+The daemon logs the opening of each TUI session (its first `/logs` request), every request it refuses, and every read of Caddy's configuration, with the client certificate's common name under `--expose-client-ca`. It also logs when it installs and removes the log sinks.
 
 ## TUI
 
