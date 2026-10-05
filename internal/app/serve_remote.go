@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -73,8 +74,10 @@ func traceRemote(next http.Handler, log *slog.Logger) http.Handler {
 		if rec.status >= http.StatusBadRequest && rec.status < http.StatusInternalServerError && daemonRefused {
 			log.Warn("remote request refused", "remote_addr", r.RemoteAddr, "method", r.Method, "path", r.URL.Path, "status", rec.status)
 		}
-		// A TUI opens its session with its first /logs request, served or not.
-		if r.URL.Path == "/logs" && r.URL.Query().Get("after") == "-1" && rec.status != http.StatusUnauthorized && rec.status != http.StatusForbidden {
+		// A TUI opens its session with its first /logs request, served or not:
+		// after is read as LogsHandler reads it.
+		after, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+		if r.URL.Path == "/logs" && err == nil && after == -1 && rec.status != http.StatusUnauthorized && rec.status != http.StatusForbidden {
 			log.Info("remote session opened", append([]any{"remote_addr", r.RemoteAddr, "user_agent", r.UserAgent()}, cn...)...)
 		}
 		// Caddy's config may hold secrets: every read of it leaves a trace.

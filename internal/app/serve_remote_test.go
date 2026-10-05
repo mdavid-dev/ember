@@ -341,9 +341,12 @@ func TestServeRemote_TracesASessionWithoutLogs(t *testing.T) {
 	client := tlsClient(pki.pool)
 	t.Cleanup(client.CloseIdleConnections)
 
-	assert.Equal(t, http.StatusConflict, getWithAuth(t, client, url+"/logs?after=-1", "remote-user", "s3cret-pass"))
+	// LogsHandler reads -01 as -1, and so does the trace.
+	for _, after := range []string{"-1", "-01"} {
+		assert.Equal(t, http.StatusConflict, getWithAuth(t, client, url+"/logs?after="+after, "remote-user", "s3cret-pass"), after)
+	}
 
-	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "remote session opened") }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return strings.Count(logs.String(), `msg="remote session opened"`) == 2 }, 2*time.Second, 10*time.Millisecond)
 	assert.Contains(t, logs.String(), "path=/logs status=409", "the refusal of the logs is traced too")
 }
 
