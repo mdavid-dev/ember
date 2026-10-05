@@ -143,15 +143,17 @@ func runDaemon(ctx context.Context, instances []*instance, cfg *config, plugins 
 	if err := configureExposeServer(srv, cfg); err != nil {
 		return err
 	}
-
-	log := cfg.logger
-	log.Info("daemon started", "metrics_url", metricsURL(srv), "instances", len(instances))
+	// Read before Serve, which gives a plain server a TLSConfig for HTTP/2.
+	url := metricsURL(srv)
 
 	go func() {
 		if err := listenMetrics(srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			cancel(err)
 		}
 	}()
+
+	log := cfg.logger
+	log.Info("daemon started", "metrics_url", url, "instances", len(instances))
 
 	// Arm before pollAll: it blocks on a full fetch of every instance, and
 	// until Notify runs both signals still terminate the process.
