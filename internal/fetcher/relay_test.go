@@ -179,7 +179,6 @@ func TestRelay_PassesEveryRequestOfARemoteTUI(t *testing.T) {
 	_, err = hf.FetchConfig(ctx)
 	require.NoError(t, err)
 	hf.FetchPKICertificates(ctx)
-	hf.DialTLSCertificates(ctx, []string{"127.0.0.1"})
 
 	var reached []string
 	for _, r := range admin.requests() {
