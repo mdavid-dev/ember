@@ -147,7 +147,7 @@ func (l *remoteLogs) Since(after int64, limit int) ([]fetcher.LogEntry, int64, e
 		}
 		l.stop = stop
 		time.AfterFunc(l.lease, l.expire)
-		l.log.Info("remote logs started: log sinks installed in Caddy", "listen", addr)
+		l.log.Info("remote logs started", "listen", addr)
 	} else if after < 0 {
 		after = l.buf.WriteCount()
 	}
