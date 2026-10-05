@@ -54,8 +54,7 @@ func TestPrepareRemote_Incompatibilities(t *testing.T) {
 
 func TestPrepareRemote_RejectsBadURLAndAuth(t *testing.T) {
 	err := remotePreRun(t, "--remote", "prod:9191")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "https://")
+	require.EqualError(t, err, `--remote must be an https:// URL without a query (got "prod:9191")`)
 
 	err = remotePreRun(t, "--remote", "https://prod:9191", "--remote-auth", "alice")
 	require.Error(t, err)
@@ -88,7 +87,7 @@ func TestPrepareRemote_RefusesPlainHTTPOutsideLocalhost(t *testing.T) {
 		err := prepareRemote(cmd, cfg)
 		if refused {
 			require.Error(t, err, remote)
-			assert.Contains(t, err.Error(), "only accepted for localhost", remote)
+			assert.EqualError(t, err, `--remote must use https://, http:// is only accepted for localhost (got "`+remote+`")`)
 		} else {
 			require.NoError(t, err, remote)
 		}

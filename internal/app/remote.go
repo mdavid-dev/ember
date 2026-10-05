@@ -32,10 +32,10 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 		return errors.New("--remote must not carry credentials: pass them with EMBER_REMOTE_AUTH or --remote-auth")
 	}
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" {
-		return fmt.Errorf("--remote must be an https:// URL without a query, got %q", cfg.remote)
+		return fmt.Errorf("--remote must be an https:// URL without a query (got %q)", cfg.remote)
 	}
 	if u.Scheme == "http" && !fetcher.IsLocalAddr(cfg.remote) {
-		return fmt.Errorf("--remote must use https:// (http:// is only accepted for localhost), got %q", cfg.remote)
+		return fmt.Errorf("--remote must use https://, http:// is only accepted for localhost (got %q)", cfg.remote)
 	}
 	if cfg.remoteAuth != "" {
 		if user, pass, ok := strings.Cut(cfg.remoteAuth, ":"); !ok || user == "" || pass == "" {
