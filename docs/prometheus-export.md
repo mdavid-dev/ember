@@ -55,6 +55,8 @@ kill -HUP $(pgrep ember)
 
 This re-reads `--ca-cert`, `--client-cert`, and `--client-key` files and applies the new configuration. Useful for certificate rotation in long-running deployments. Not available on Windows.
 
+`--expose-cert` and `--expose-key` are read once at startup: restart the daemon to change them.
+
 ## Exported Metrics
 
 ### FrankenPHP Thread Metrics
