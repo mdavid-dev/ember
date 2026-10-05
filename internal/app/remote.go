@@ -26,6 +26,10 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 		}
 	}
 	u, err := url.Parse(cfg.remote)
+	// Before the messages below, which quote the URL.
+	if err == nil && u.User != nil {
+		return errors.New("--remote must not carry credentials: pass them with EMBER_REMOTE_AUTH or --remote-auth")
+	}
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" {
 		return fmt.Errorf("--remote must be an https:// URL without a query, got %q", cfg.remote)
 	}

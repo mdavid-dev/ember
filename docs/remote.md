@@ -25,7 +25,7 @@ Against a daemon started with `--expose-client-ca`, present a certificate signed
 ember --remote https://prod:9191 --ca-cert ca.pem --client-cert me.pem --client-key me-key.pem
 ```
 
-`--remote` requires `https://`, except for localhost. Run the same Ember version on the daemon and the TUI. The TUI reads Caddy as it does over SSH, at its own `--interval`, through the daemon. `--remote` exits at once when the daemon cannot be reached, refuses the credentials, or was not started with `--serve-remote`; with Caddy down behind a reachable daemon, the TUI starts and shows the outage as over SSH. Worker restart is not available remotely, and plugins are not loaded in a remote session. The Certificates tab shows what the daemon sees: the daemon dials the TLS hosts it monitors.
+`--remote` requires `https://`, except for localhost, and refuses credentials in the URL: pass them with `EMBER_REMOTE_AUTH`. Run the same Ember version on the daemon and the TUI. The TUI reads Caddy as it does over SSH, at its own `--interval`, through the daemon. `--remote` exits at once when the daemon cannot be reached, refuses the credentials, or was not started with `--serve-remote`; with Caddy down behind a reachable daemon, the TUI starts and shows the outage as over SSH. Worker restart is not available remotely, and plugins are not loaded in a remote session. The Certificates tab shows what the daemon sees: the daemon dials the TLS hosts it monitors.
 
 ## Logs
 

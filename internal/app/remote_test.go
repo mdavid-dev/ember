@@ -59,6 +59,11 @@ func TestPrepareRemote_RejectsBadURLAndAuth(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "user:password")
 
+	err = remotePreRun(t, "--remote", "https://alice:s3cret@prod:9191?instance=web1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not carry credentials")
+	assert.NotContains(t, err.Error(), "s3cret", "the message does not quote the URL")
+
 	err = remotePreRun(t, "--remote", "https://prod:9191?instance=web1")
 	require.Error(t, err, "a --serve-remote daemon has a single Caddy")
 	assert.Contains(t, err.Error(), "without a query")
