@@ -27,7 +27,7 @@ func TestIntegration_RemoteRelay(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := &config{interval: time.Second, serveRemote: true, metricsAuth: "remote:s3cret",
-		logger: slog.New(slog.DiscardHandler), logSource: stubLogSource{}, relayed: direct}
+		logger: slog.New(slog.DiscardHandler), logSource: &recordingLogSource{buf: model.NewLogBuffer(0)}, relayed: direct}
 	daemon := httptest.NewServer(traceRemote(newMetricsHandler(freshHolder(), cfg, nil), cfg.logger))
 	t.Cleanup(daemon.Close)
 	u, err := url.Parse(daemon.URL)

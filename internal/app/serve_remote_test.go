@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/alexandre-daubois/ember/internal/fetcher"
+	"github.com/alexandre-daubois/ember/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -111,7 +112,7 @@ func startRemoteServer(t *testing.T, cfg *config) (string, *syncBuffer) {
 		cfg.interval = time.Second
 	}
 	if cfg.logSource == nil {
-		cfg.logSource = stubLogSource{}
+		cfg.logSource = &recordingLogSource{buf: model.NewLogBuffer(0)}
 	}
 	if cfg.relayed == nil {
 		cfg.relayed = fetcher.NewHTTPFetcher("http://127.0.0.1:1", 0)
@@ -185,10 +186,6 @@ func TestValidate_ServeRemote(t *testing.T) {
 	}
 }
 
-type stubLogSource struct{}
-
-func (stubLogSource) Since(int64, int) ([]fetcher.LogEntry, int64, error) { return nil, 0, nil }
-
 // countingAdmin stands for Caddy's admin API and counts what reaches it.
 type countingAdmin struct {
 	mu   sync.Mutex
@@ -227,7 +224,7 @@ func newCountingAdmin(t *testing.T) (*countingAdmin, *fetcher.HTTPFetcher) {
 func TestNewMetricsHandler_RemoteRoutesNeedServeRemote(t *testing.T) {
 	_, hf := newCountingAdmin(t)
 	for _, serveRemote := range []bool{false, true} {
-		cfg := &config{interval: time.Second, serveRemote: serveRemote, logSource: stubLogSource{}, relayed: hf}
+		cfg := &config{interval: time.Second, serveRemote: serveRemote, logSource: &recordingLogSource{buf: model.NewLogBuffer(0)}, relayed: hf}
 		h := newMetricsHandler(freshHolder(), cfg, nil)
 		for _, path := range []string{"/logs?after=-1", "/caddy/config/", "/certificates"} {
 			rec := httptest.NewRecorder()
@@ -324,19 +321,13 @@ func TestServeRemote_TracesTheRelayRefusals(t *testing.T) {
 	assert.NotContains(t, out, "/caddy/config/apps/pki", "nor is its 400 for a PKI app it does not have")
 }
 
-type refusingLogSource struct{}
-
-func (refusingLogSource) Since(int64, int) ([]fetcher.LogEntry, int64, error) {
-	return nil, 0, errors.New("logs are not available: Caddy is on another host and the daemon has no --log-listen")
-}
-
 func TestServeRemote_TracesASessionWithoutLogs(t *testing.T) {
 	pki := writeTestPKI(t)
 	url, logs := startRemoteServer(t, &config{
 		metricsAuth: "remote-user:s3cret-pass",
 		exposeCert:  pki.serverCert,
 		exposeKey:   pki.serverKey,
-		logSource:   refusingLogSource{},
+		logSource:   &recordingLogSource{err: errors.New("logs are not available: Caddy is on another host and the daemon has no --log-listen")},
 	})
 	client := tlsClient(pki.pool)
 	t.Cleanup(client.CloseIdleConnections)

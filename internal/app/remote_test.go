@@ -307,7 +307,7 @@ func TestRemoteLogs_ClientMarksTheEndOfTheStream(t *testing.T) {
 }
 
 func TestRemoteLogs_ClientStopsOnARefusal(t *testing.T) {
-	src := &recordingLogSource{err: errors.New("logs are not available on a multi-instance daemon")}
+	src := &recordingLogSource{err: errors.New("logs are not available: Caddy is on another host and the daemon has no --log-listen")}
 
 	uiCfg := remoteLogsAgainst(t, exporter.LogsHandler(src), 100*time.Millisecond)
 
@@ -315,7 +315,7 @@ func TestRemoteLogs_ClientStopsOnARefusal(t *testing.T) {
 	entries, _ := uiCfg.RuntimeLogBuffer.Since(0, 0)
 	require.Len(t, entries, 1)
 	assert.Equal(t, "ember.remote", entries[0].Logger)
-	assert.Contains(t, entries[0].Message, "multi-instance daemon")
+	assert.Contains(t, entries[0].Message, "no --log-listen")
 	assert.Len(t, src.seen(), 1)
 }
 
