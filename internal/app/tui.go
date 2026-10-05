@@ -121,6 +121,8 @@ func startMetricsServer(srv *http.Server) <-chan error {
 //     Caddy).
 //  3. Auto: when Caddy looks reachable from the same host, bind a free
 //     loopback port and ask Caddy to push logs to it.
+//  4. --remote: page through the daemon's /logs. The TUI registers nothing
+//     in Caddy: the daemon does, for the length of the session.
 //
 // In the two listener modes Ember hot-registers an "__ember__" sink in Caddy
 // and enables access logging on every server that did not already have a logs
