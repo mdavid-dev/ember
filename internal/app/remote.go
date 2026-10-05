@@ -20,6 +20,7 @@ func prepareRemote(cmd *cobra.Command, cfg *config) error {
 		{"--daemon", cfg.daemon}, {"--json", cfg.jsonMode}, {"--expose", cfg.expose != ""},
 		{"--stdin-logs", cfg.stdinLogs}, {"--log-listen", cfg.logListen != ""}, {"--once", cfg.once},
 		{"--metrics-auth", cfg.metricsAuth != ""}, {"--serve-remote", cfg.serveRemote}, {"--expose-cert", cfg.exposeCert != ""},
+		{"--expose-key", cfg.exposeKey != ""}, {"--expose-client-ca", cfg.exposeCA != ""},
 	} {
 		if c.on {
 			return fmt.Errorf("--remote is incompatible with %s", c.flag)
