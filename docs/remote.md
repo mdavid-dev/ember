@@ -45,7 +45,7 @@ The credentials give read access to everything the TUI shows, including the URIs
 
 The credentials also give access to Caddy's whole configuration, which may hold secrets: DNS provider tokens for ACME, `basic_auth` password hashes, headers added to requests sent to upstreams.
 
-With the credentials, a single `GET /logs` makes the daemon register the sinks and turn on access logs in Caddy, for 30 seconds.
+With the credentials, a single `GET /logs?after=-1` makes the daemon register the sinks and turn on access logs in Caddy, for 30 seconds.
 
 ## Try it
 
