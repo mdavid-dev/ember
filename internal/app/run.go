@@ -196,7 +196,7 @@ Keybindings:
 	f.StringVar(&cfg.metricsAuth, "metrics-auth", "", "Basic auth for metrics endpoint (user:password)")
 	f.StringVar(&cfg.exposeCert, "expose-cert", "", "TLS certificate for the daemon's --expose server (requires --expose-key)")
 	f.StringVar(&cfg.exposeKey, "expose-key", "", "TLS private key for the daemon's --expose server (requires --expose-cert)")
-	f.StringVar(&cfg.exposeCA, "expose-client-ca", "", "CA that --expose clients must present a certificate from (mTLS)")
+	f.StringVar(&cfg.exposeCA, "expose-client-ca", "", "CA that --expose clients must present a certificate from (mTLS, requires --expose-cert and --expose-key)")
 	f.StringVar(&cfg.remote, "remote", "", "Run the TUI against an Ember daemon started with --serve-remote (e.g. https://prod:9191)")
 	f.StringVar(&cfg.remoteAuth, "remote-auth", "", "Basic auth for --remote (user:password)")
 	f.BoolVar(&cfg.serveRemote, "serve-remote", false, "Serve remote TUIs from the daemon (requires --daemon and --metrics-auth or --expose-client-ca)")
