@@ -121,26 +121,37 @@ func startMetricsServer(srv *http.Server) <-chan error {
 //     Caddy).
 //  3. Auto: when Caddy looks reachable from the same host, bind a free
 //     loopback port and ask Caddy to push logs to it.
+//  4. --remote: page through the daemon's /logs. The TUI registers nothing
+//     in Caddy: the daemon does, for the length of the session.
 //
 // In the two listener modes Ember hot-registers an "__ember__" sink in Caddy
 // and enables access logging on every server that did not already have a logs
 // block. The returned cleanup function reverses both changes.
 func setupLogSource(cfg *config, f fetcher.Fetcher, uiCfg *ui.Config) func() {
+	if rf, ok := f.(*fetcher.RemoteFetcher); ok {
+		return startRemoteLogs(rf, cfg.remotePage, cfg.logsRefusal, uiCfg)
+	}
 	if cfg.stdinLogs {
 		startStdinListener(uiCfg)
 		return func() {}
 	}
-	addr := cfg.logListen
-	if addr == "" {
-		if !isLocalAdminAddr(cfg.addrs[0].url) {
-			return func() {}
-		}
-		addr = "127.0.0.1:0"
+	addr, ok := logListenAddr(cfg)
+	if !ok {
+		return func() {}
 	}
 	if cleanup, ok := startNetListener(addr, f, uiCfg); ok {
 		return cleanup
 	}
 	return func() {}
+}
+
+// logListenAddr returns false when Caddy is on another host and no
+// --log-listen says how to reach Ember.
+func logListenAddr(cfg *config) (string, bool) {
+	if cfg.logListen != "" {
+		return cfg.logListen, true
+	}
+	return "127.0.0.1:0", isLocalAdminAddr(cfg.addrs[0].url)
 }
 
 // startStdinListener feeds the UI buffers from standard input. There is no
@@ -235,6 +246,93 @@ func startNetListener(addr string, f fetcher.Fetcher, uiCfg *ui.Config) (func(),
 		return noop, false
 	}
 
+	accessBuf, runtimeBuf, routeAgg, store := newLogBuffers()
+	advertiseAddr, cleanup, ok := receiveCaddyLogs(addr, hf, store, warnIfPublicListener)
+	if !ok {
+		return cleanup, false
+	}
+	uiCfg.LogBuffer = accessBuf
+	uiCfg.RuntimeLogBuffer = runtimeBuf
+	uiCfg.RouteAggregator = routeAgg
+	uiCfg.LogSource = "net " + advertiseAddr
+	return cleanup, true
+}
+
+func newLogBuffers() (*model.LogBuffer, *model.LogBuffer, *model.RouteAggregator, func([]fetcher.LogEntry)) {
+	accessBuf := model.NewLogBuffer(0)
+	runtimeBuf := model.NewLogBuffer(0)
+	routeAgg := model.NewRouteAggregator()
+	return accessBuf, runtimeBuf, routeAgg, func(batch []fetcher.LogEntry) {
+		for _, e := range batch {
+			if e.IsAccessLog() {
+				accessBuf.Append(e)
+				// Track in the aggregator too so route counts survive ring-
+				// buffer wraparound: the buffer caps at 10 000 entries, but
+				// the By Route view should reflect the full session.
+				routeAgg.Track(e)
+			} else {
+				runtimeBuf.Append(e)
+			}
+		}
+	}
+}
+
+func startRemoteLogs(rf *fetcher.RemoteFetcher, page *fetcher.RemoteLogs, refusal error, uiCfg *ui.Config) func() {
+	accessBuf, runtimeBuf, routeAgg, store := newLogBuffers()
+	uiCfg.LogBuffer, uiCfg.RuntimeLogBuffer, uiCfg.RouteAggregator = accessBuf, runtimeBuf, routeAgg
+	if refusal != nil {
+		runtimeBuf.Append(remoteLogsStopped(refusal))
+		return func() {}
+	}
+	// At least every second, whatever the interval, so the daemon's lease
+	// never lapses.
+	ticker := time.NewTicker(min(max(uiCfg.Interval, minInterval), time.Second))
+	ctx, cancel := context.WithCancel(context.Background())
+	var done sync.WaitGroup
+	done.Go(func() {
+		defer ticker.Stop()
+		var err error
+		next := int64(-1)
+		for !errors.As(err, new(fetcher.RefusedError)) {
+			if err == nil {
+				store(page.Entries)
+				next = page.Next
+			}
+			if err != nil || len(page.Entries) < fetcher.MaxRemoteLogs {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+			page, err = rf.FetchLogs(ctx, next)
+		}
+		runtimeBuf.Append(remoteLogsStopped(err))
+	})
+	return func() {
+		cancel()
+		done.Wait()
+	}
+}
+
+// remoteLogsStopped tells the Logs tab, as the stdin source does, that no more
+// lines will come.
+func remoteLogsStopped(err error) fetcher.LogEntry {
+	return fetcher.LogEntry{
+		Timestamp: time.Now(),
+		Level:     "error",
+		Logger:    "ember.remote",
+		Message:   "remote log stream stopped: " + err.Error(),
+	}
+}
+
+// receiveCaddyLogs is startNetListener without the UI, shared with a
+// --serve-remote daemon; it returns the address given to Caddy. warn gets the
+// address bound. The daemon passes a no-op and warns once instead, before any
+// bind, about the address it is configured with.
+func receiveCaddyLogs(addr string, hf *fetcher.HTTPFetcher, onBatch func([]fetcher.LogEntry), warn func(string)) (string, func(), bool) {
+	noop := func() {}
+
 	// Try to bind directly on the requested address. When the host part
 	// cannot be resolved locally (e.g. "host.docker.internal:9210"), fall
 	// back to binding on just the port and advertise the original address
@@ -244,18 +342,18 @@ func startNetListener(addr string, f fetcher.Fetcher, uiCfg *ui.Config) (func(),
 	if err != nil {
 		_, port, splitErr := net.SplitHostPort(addr)
 		if splitErr != nil {
-			return noop, false
+			return "", noop, false
 		}
 		ln, err = fetcher.NewLogNetListener(":" + port)
 		if err != nil {
-			return noop, false
+			return "", noop, false
 		}
 		advertiseAddr = addr
 	}
 	if advertiseAddr == "" {
 		advertiseAddr = ln.Addr()
 	}
-	warnIfPublicListener(ln.Addr())
+	warn(ln.Addr())
 
 	// PUT on the sink endpoint is idempotent: Caddy replaces an
 	// existing sink with the new definition. A stale entry left by a prior
@@ -279,30 +377,10 @@ func startNetListener(addr string, f fetcher.Fetcher, uiCfg *ui.Config) (func(),
 	// touched so we can undo only those at cleanup.
 	enabled := enableAccessLogs(hf)
 
-	accessBuf := model.NewLogBuffer(0)
-	runtimeBuf := model.NewLogBuffer(0)
-	routeAgg := model.NewRouteAggregator()
-	uiCfg.LogBuffer = accessBuf
-	uiCfg.RuntimeLogBuffer = runtimeBuf
-	uiCfg.RouteAggregator = routeAgg
-	uiCfg.LogSource = "net " + advertiseAddr
-
 	ctx, cancel := context.WithCancel(context.Background())
 	var listenerDone sync.WaitGroup
 	listenerDone.Go(func() {
-		ln.Start(ctx, func(batch []fetcher.LogEntry) {
-			for _, e := range batch {
-				if e.IsAccessLog() {
-					accessBuf.Append(e)
-					// Track in the aggregator too so route counts survive ring-
-					// buffer wraparound: the buffer caps at 10 000 entries, but
-					// the By Route view should reflect the full session.
-					routeAgg.Track(e)
-				} else {
-					runtimeBuf.Append(e)
-				}
-			}
-		})
+		ln.Start(ctx, onBatch)
 	})
 
 	// Watchdog: re-registers both sinks and access-logs blocks periodically.
@@ -345,7 +423,7 @@ func startNetListener(addr string, f fetcher.Fetcher, uiCfg *ui.Config) (func(),
 		}
 	})
 
-	return func() {
+	return advertiseAddr, func() {
 		cancel()
 		ln.Close()
 		// Start only returns once every connection handler has.

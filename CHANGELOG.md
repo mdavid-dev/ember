@@ -2,6 +2,12 @@
 
 All notable changes to Ember are documented here.
 
+## Unreleased
+
+### Added
+
+- `ember --remote <url>` runs the TUI, read-only, against a daemon started with `--serve-remote`, which relays under `/caddy/` the `GET` requests the TUI sends to Caddy's admin API, and nothing else, behind `--metrics-auth` or a client certificate. The Logs tab works too: as soon as a remote TUI connects, whatever tab it shows, the daemon registers the log sinks in Caddy as a local TUI does, and removes the sinks and the `logs` blocks it added 30 seconds after the last one stops, or when it shuts down cleanly; `--log-listen` applies to the daemon as to a local TUI, and is required when Caddy is not on localhost. `--expose-cert`, `--expose-key` and `--expose-client-ca` put the daemon's `--expose` server, Prometheus included, behind TLS or mTLS. See [Remote TUI](docs/remote.md).
+
 ## 1.6.1 - 2026-08-31
 
 ### Changed
