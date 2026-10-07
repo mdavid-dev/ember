@@ -328,7 +328,8 @@ func remoteLogsStopped(err error) fetcher.LogEntry {
 
 // receiveCaddyLogs is startNetListener without the UI, shared with a
 // --serve-remote daemon; it returns the address given to Caddy. warn gets the
-// address bound, which the daemon reports once through its logger instead.
+// address bound. The daemon passes a no-op and warns once instead, before any
+// bind, about the address it is configured with.
 func receiveCaddyLogs(addr string, hf *fetcher.HTTPFetcher, onBatch func([]fetcher.LogEntry), warn func(string)) (string, func(), bool) {
 	noop := func() {}
 

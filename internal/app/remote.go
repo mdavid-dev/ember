@@ -70,8 +70,8 @@ func runRemote(ctx context.Context, cfg *config, version string) error {
 }
 
 // remoteFatal stops a remote TUI on an unreachable or failing daemon, on
-// refused credentials, or on a server without remote sessions (404); logs the
-// daemon cannot serve (409) do not stop it.
+// refused credentials (401), or on a server without remote sessions (404); any
+// other 4xx, such as logs the daemon cannot serve (409), does not stop it.
 func remoteFatal(err error) bool {
 	var refused fetcher.RefusedError
 	return err != nil && (!errors.As(err, &refused) || refused.Status == http.StatusUnauthorized || refused.Status == http.StatusNotFound)

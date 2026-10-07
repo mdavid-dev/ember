@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// tuiReads are the GETs HTTPFetcher sends Caddy for a TUI, plus /pki/ca/{id}.
+// tuiReads are the GETs HTTPFetcher sends Caddy for a remote TUI, plus /pki/ca/{id}.
 var tuiReads = []string{
 	"/metrics",
 	"/frankenphp/threads",

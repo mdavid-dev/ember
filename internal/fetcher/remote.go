@@ -19,10 +19,10 @@ type RemoteLogs struct {
 	Entries []LogEntry `json:"entries"`
 }
 
-// MaxRemoteLogs caps a /logs page: a full one means more lines are waiting.
+// MaxRemoteLogs caps a /logs page: a full one means more lines may be waiting.
 const MaxRemoteLogs = 1000
 
-// RefusedError is a 4xx answer: the daemon would refuse the same request again.
+// RefusedError is a 4xx answer, which the remote TUI does not retry.
 type RefusedError struct {
 	error
 	Status int
